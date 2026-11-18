@@ -10,6 +10,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <RootNamespace>MultiSeat.Agent</RootNamespace>
+    <ApplicationIcon>..\MultiSeat\MultiSeat.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MultiSeat.Core\MultiSeat.Core.csproj" />

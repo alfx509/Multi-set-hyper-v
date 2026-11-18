@@ -11,7 +11,6 @@ namespace MultiSeat.UI;
 internal sealed class MainForm : Form
 {
     private const int ColStatus = 8;
-    private const string AutoStartTask = "MultiSeat";
 
     private readonly ListView _list = new()
     {
@@ -40,13 +39,10 @@ internal sealed class MainForm : Form
     private readonly Button _remove = ToolButton("✖  Remove");
     private readonly Button _identify = ToolButton("🖥  Identify monitors");
     private readonly Button _check = ToolButton("✔  Check this PC");
+    private readonly Button _settings = ToolButton("⚙  Settings");
 
     private readonly ToolStripStatusLabel _summary = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly ToolStripMenuItem _optAutoStart = new("Start the seats when MultiSeat opens") { CheckOnClick = true };
-    private readonly ToolStripMenuItem _optReconnect = new("Reopen a seat screen if it closes") { CheckOnClick = true };
-    private readonly ToolStripMenuItem _optConfine = new("Keep my mouse on my own monitor while playing") { CheckOnClick = true };
-    private readonly ToolStripMenuItem _optLogon = new("Open MultiSeat when I sign in to Windows") { CheckOnClick = true };
-    private readonly NotifyIcon _tray = new() { Text = "MultiSeat", Icon = SystemIcons.Application };
+    private readonly NotifyIcon _tray = new() { Text = "MultiSeat", Icon = AppIcon.Get() };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 250 };
 
     private readonly MultiSeatConfig _config = LoadConfig();
@@ -58,11 +54,17 @@ internal sealed class MainForm : Form
     private bool _starting;
     private int _tick;
     private Font _boldFont = SystemFonts.DefaultFont;
+    private bool _startHidden;
+    private bool _exiting;
+    private bool _trayHintShown;
 
-    public MainForm()
+    /// <param name="autoStarted">True when Windows started MultiSeat at sign-in.</param>
+    public MainForm(bool autoStarted = false)
     {
         Text = "MultiSeat – one PC, many players";
-        Icon = SystemIcons.Application;
+        Icon = AppIcon.Get();
+        // Start hidden in the tray only once MultiSeat has been set up (the very first start always shows the window).
+        _startHidden = autoStarted && _config.StartMinimized && File.Exists(AppPaths.Config);
         ClientSize = new Size(1180, 640);
         MinimumSize = new Size(900, 480);
         StartPosition = FormStartPosition.CenterScreen;
@@ -90,11 +92,6 @@ internal sealed class MainForm : Form
         {
             _router.Message += m => BeginInvoke(() => Log(m));
         }
-
-        _optAutoStart.Checked = _config.AutoStartSeats;
-        _optReconnect.Checked = _config.AutoReconnect;
-        _optConfine.Checked = _config.ConfineConsoleCursor;
-        _optLogon.Checked = TaskExists(AutoStartTask);
 
         Log($"Welcome! Up to {MultiSeatConfig.MaxSeats} players. Add a player for each extra person, then use " +
             "\"Assign devices\" so everyone presses a key and clicks their own mouse. Then press Start.");
@@ -138,7 +135,7 @@ internal sealed class MainForm : Form
         players.DropDownItems.Add("Exit", null, (_, _) => ExitApp());
 
         var options = new ToolStripMenuItem("&Options");
-        options.DropDownItems.AddRange(new ToolStripItem[] { _optAutoStart, _optReconnect, _optConfine, new ToolStripSeparator(), _optLogon });
+        options.DropDownItems.Add(new ToolStripMenuItem("Settings…", null, (_, _) => OpenSettings(), Keys.Control | Keys.Oemcomma));
 
         var help = new ToolStripMenuItem("&Help");
         help.DropDownItems.Add("Check this PC", null, (_, _) => ShowChecks(HostCheck.Run(_config), always: true));
@@ -147,7 +144,7 @@ internal sealed class MainForm : Form
         menu.Items.AddRange(new ToolStripItem[] { players, options, help });
 
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
-        toolbar.Controls.AddRange(new Control[] { _start, _stop, Gap(), _add, _assign, _edit, _remove, Gap(), _identify, _check });
+        toolbar.Controls.AddRange(new Control[] { _start, _stop, Gap(), _add, _assign, _edit, _remove, Gap(), _identify, _check, _settings });
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 360 };
         split.Panel1.Controls.Add(_list);
@@ -190,6 +187,7 @@ internal sealed class MainForm : Form
         trayMenu.Items.Add("Show MultiSeat", null, (_, _) => ShowFromTray());
         trayMenu.Items.Add("Start", null, async (_, _) => await StartAsync());
         trayMenu.Items.Add("Stop", null, (_, _) => Stop());
+        trayMenu.Items.Add("Settings…", null, (_, _) => { ShowFromTray(); OpenSettings(); });
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("Exit", null, (_, _) => ExitApp());
         _tray.ContextMenuStrip = trayMenu;
@@ -208,6 +206,7 @@ internal sealed class MainForm : Form
         _remove.Click += (_, _) => RemoveSelected();
         _identify.Click += (_, _) => Monitors.Identify();
         _check.Click += (_, _) => ShowChecks(HostCheck.Run(_config), always: true);
+        _settings.Click += (_, _) => OpenSettings();
         _list.DoubleClick += (_, _) => EditSelected();
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
         _list.KeyDown += (_, e) =>
@@ -220,18 +219,6 @@ internal sealed class MainForm : Form
         _tray.DoubleClick += (_, _) => ShowFromTray();
         _timer.Tick += (_, _) => OnTick();
 
-        _optAutoStart.CheckedChanged += (_, _) => { _config.AutoStartSeats = _optAutoStart.Checked; SaveConfig(); };
-        _optReconnect.CheckedChanged += (_, _) => { _config.AutoReconnect = _optReconnect.Checked; SaveConfig(); };
-        _optConfine.CheckedChanged += (_, _) =>
-        {
-            _config.ConfineConsoleCursor = _optConfine.Checked;
-            SaveConfig();
-            if (!_optConfine.Checked)
-            {
-                ClipCursor(IntPtr.Zero);
-            }
-        };
-        _optLogon.Click += (_, _) => SetOpenAtLogon(_optLogon.Checked);
     }
 
     // ------------------------------------------------------------------ config + list
@@ -783,32 +770,97 @@ internal sealed class MainForm : Form
 
     // ------------------------------------------------------------------ window / tray
 
+    /// <summary>When Windows starts MultiSeat at sign-in, the window stays hidden; only the tray icon shows.</summary>
+    protected override void SetVisibleCore(bool value)
+    {
+        if (_startHidden && value)
+        {
+            _startHidden = false;
+            if (!IsHandleCreated)
+            {
+                CreateHandle();
+            }
+
+            value = false;
+            BeginInvoke(() => _ = AutoStartSeatsAsync());
+        }
+
+        base.SetVisibleCore(value);
+    }
+
     protected override async void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (_config.AutoStartSeats)
+        await AutoStartSeatsAsync();
+    }
+
+    private bool _autoStartDone;
+
+    private async Task AutoStartSeatsAsync()
+    {
+        if (_autoStartDone || !_config.AutoStartSeats)
         {
-            Log("Starting the players automatically (Options menu to turn off)…");
-            await Task.Delay(3000);
-            await StartAsync();
+            return;
         }
+
+        _autoStartDone = true;
+        Log("Starting the players automatically (Settings to turn off)…");
+        await Task.Delay(3000);
+        await StartAsync();
+    }
+
+    private void OpenSettings()
+    {
+        using var form = new SettingsForm(_config);
+        if (form.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        SaveConfig();
+        foreach (var m in form.Messages)
+        {
+            Log(m);
+        }
+
+        if (!_config.ConfineConsoleCursor)
+        {
+            ClipCursor(IntPtr.Zero);
+        }
+
+        Log("Settings saved.");
     }
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        if (WindowState == FormWindowState.Minimized && _running)
+        if (WindowState == FormWindowState.Minimized && _config.MinimizeToTray)
         {
-            Hide();
-            _tray.ShowBalloonTip(3000, "MultiSeat", "Still running. Double-click this icon to open MultiSeat.", ToolTipIcon.Info);
+            HideToTray();
         }
     }
 
-    private void ShowFromTray()
+    private void HideToTray()
     {
+        Hide();
+        if (!_trayHintShown)
+        {
+            _trayHintShown = true;
+            _tray.ShowBalloonTip(3000, "MultiSeat", "MultiSeat is still running here. Double-click the icon to open it.", ToolTipIcon.Info);
+        }
+    }
+
+    internal void ShowFromTray()
+    {
+        _startHidden = false;
         Show();
-        WindowState = FormWindowState.Normal;
+        if (WindowState == FormWindowState.Minimized)
+        {
+            WindowState = FormWindowState.Normal;
+        }
+
         Activate();
+        BringToFront();
     }
 
     private void ExitApp()
@@ -818,16 +870,28 @@ internal sealed class MainForm : Form
             return;
         }
 
+        _exiting = true;
         Close();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_running && e.CloseReason == CloseReason.UserClosing &&
-            MessageBox.Show(this, "Players are still playing. Stop all players and exit?", "MultiSeat", MessageBoxButtons.YesNo) != DialogResult.Yes)
+        if (e.CloseReason == CloseReason.UserClosing && !_exiting)
         {
-            e.Cancel = true;
-            return;
+            if (_config.CloseToTray)
+            {
+                // X button: keep running in the tray (exit from the tray menu or Players → Exit).
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
+
+            if (_running && MessageBox.Show(this, "Players are still playing. Stop all players and exit?", "MultiSeat",
+                    MessageBoxButtons.YesNo) != DialogResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
         }
 
         Stop();
@@ -846,49 +910,6 @@ internal sealed class MainForm : Form
         }
         catch (System.ComponentModel.Win32Exception)
         {
-        }
-    }
-
-    // ------------------------------------------------------------------ open at sign-in
-
-    private void SetOpenAtLogon(bool enable)
-    {
-        var exe = Environment.ProcessPath ?? Application.ExecutablePath;
-        var user = $"{Environment.UserDomainName}\\{Environment.UserName}";
-        var args = enable
-            ? $"/Create /F /TN {AutoStartTask} /SC ONLOGON /RL HIGHEST /IT /RU \"{user}\" /TR \"\\\"{exe}\\\"\""
-            : $"/Delete /F /TN {AutoStartTask}";
-        var code = RunSchtasks(args);
-        Log(code == 0
-            ? enable ? "MultiSeat will open when you sign in." : "MultiSeat will no longer open at sign-in."
-            : $"✖ Could not change the sign-in task (schtasks exit code {code}).");
-        _optLogon.Checked = TaskExists(AutoStartTask);
-    }
-
-    private static bool TaskExists(string name) => RunSchtasks($"/Query /TN {name}") == 0;
-
-    private static int RunSchtasks(string args)
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("schtasks.exe", args)
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            });
-            if (p is null)
-            {
-                return -1;
-            }
-
-            p.WaitForExit(10000);
-            return p.HasExited ? p.ExitCode : -1;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return -1;
         }
     }
 

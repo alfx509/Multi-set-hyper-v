@@ -51,12 +51,20 @@ Press **▶ Start**. After a few seconds each player sees their own desktop on t
   (reopen their screen, sign out only them).
 - Minimizing MultiSeat while playing hides it to the tray icon.
 
-## Options menu
+## Settings (⚙ button)
 
-- *Start the seats when MultiSeat opens* and *Open MultiSeat when I sign in to Windows*: turn both on
-  and the PC is ready to play right after you sign in.
-- *Reopen a seat screen if it closes* (on by default).
-- *Keep my mouse on my own monitor while playing* (on by default).
+| Setting | What it does |
+|---|---|
+| Start MultiSeat when I sign in to Windows | MultiSeat opens by itself after you sign in (also a checkbox in the installer). |
+| …and start hidden in the tray | It waits as an icon next to the clock instead of opening the window. |
+| Minimize to the tray | The – button hides MultiSeat next to the clock instead of the taskbar. |
+| Close button keeps MultiSeat running | The X button hides it to the tray. Exit: right-click the tray icon → Exit. |
+| Start the players automatically | Presses Start for you when MultiSeat opens. With "start when I sign in", the PC is ready to play right after sign-in. |
+| Reopen a player's screen if it closes | On by default. |
+| Keep my mouse on my own monitor | On by default. |
+| Players' screens: 60 / 30 fps | 30 fps uses less graphics power with many players. |
+
+Starting MultiSeat a second time (desktop icon, Start menu) just shows the one that is already running.
 
 ## Gamepads (experimental)
 

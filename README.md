@@ -38,7 +38,8 @@ Press **■ Stop** when done.
 
 Extras: a live **● playing** light shows whose keyboard/mouse is being used (great for testing),
 closed player screens reopen by themselves, MultiSeat can open at sign-in and start the players
-automatically, and it keeps running from the tray icon.
+automatically, and it keeps running from the tray icon. Desktop and Start-menu shortcuts, start with
+Windows, and a **⚙ Settings** window are included.
 
 **Ctrl + Alt + F12** on a player's keyboard lends their keyboard and mouse to the main desktop
 (press again to give them back).

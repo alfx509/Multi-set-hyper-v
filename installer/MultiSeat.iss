@@ -30,6 +30,7 @@ SolidCompression=yes
 WizardStyle=modern
 LicenseFile={#Root}\LICENSE
 InfoBeforeFile=info-before.txt
+SetupIconFile={#Root}\src\MultiSeat\MultiSeat.ico
 UninstallDisplayIcon={app}\MultiSeat.exe
 UninstallDisplayName=MultiSeat
 CloseApplications=force
@@ -38,6 +39,7 @@ AlwaysRestart=yes
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop icon"; GroupDescription: "Shortcuts:"
+Name: startup; Description: "Start MultiSeat when I sign in to Windows (it waits in the tray, next to the clock)"; GroupDescription: "Startup:"
 Name: sessionhost; Description: "Allow 4 to 8 players (installs Windows Server's Remote Desktop Session Host role; free for 120 days, then needs RDS licenses)"; GroupDescription: "Windows Server:"; Flags: unchecked; Check: IsServer
 
 [Files]
@@ -97,5 +99,14 @@ begin
       MsgBox('MultiSeat was installed, but setting up Windows did not finish.' + #13#10 +
              'Details: C:\ProgramData\MultiSeat\setup.log' + #13#10#13#10 +
              'You can run this setup again to retry.', mbError, MB_OK);
+
+    { Start with Windows: a scheduled task with highest rights, so there is no UAC prompt at every sign-in. }
+    if WizardIsTaskSelected('startup') then
+      Exec(ExpandConstant('{sys}\schtasks.exe'),
+           '/Create /F /TN MultiSeat /SC ONLOGON /RL HIGHEST /IT /RU "' + GetEnv('USERDOMAIN') + '\' + GetUserNameString +
+           '" /TR "\"' + ExpandConstant('{app}\MultiSeat.exe') + '\" --autostart"',
+           '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    else
+      Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /F /TN MultiSeat', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

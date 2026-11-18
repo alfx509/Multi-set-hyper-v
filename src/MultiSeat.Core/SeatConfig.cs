@@ -37,6 +37,15 @@ public sealed class MultiSeatConfig
     /// <summary>If a seat's screen closes while playing, open it again.</summary>
     public bool AutoReconnect { get; set; } = true;
 
+    /// <summary>When Windows starts MultiSeat at sign-in, stay hidden in the tray.</summary>
+    public bool StartMinimized { get; set; } = true;
+
+    /// <summary>Minimizing hides MultiSeat to the tray (notification area) instead of the taskbar.</summary>
+    public bool MinimizeToTray { get; set; } = true;
+
+    /// <summary>The window's X button keeps MultiSeat running in the tray. Exit from the tray menu.</summary>
+    public bool CloseToTray { get; set; } = true;
+
     public static MultiSeatConfig CreateDefault() => new()
     {
         Seats = { new Seat { Name = "Seat 1 (this desktop)", IsConsole = true } },
