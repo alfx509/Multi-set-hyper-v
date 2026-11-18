@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <AssemblyName>SeatRouter</AssemblyName>
+    <RootNamespace>MultiSeat.Router</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MultiSeat.Protocol\MultiSeat.Protocol.csproj" />
+  </ItemGroup>
+
+  <!-- interception.dll is not redistributed here; Install-Interception.ps1 places it in third_party/. -->
+  <ItemGroup>
+    <None Include="..\..\third_party\Interception\library\x64\interception.dll"
+          Condition="Exists('..\..\third_party\Interception\library\x64\interception.dll')"
+          Link="interception.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

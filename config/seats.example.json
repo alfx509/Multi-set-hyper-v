@@ -1,0 +1,63 @@
+{
+  "$comment": "Copy to config/seats.json and edit. Every seat = one Hyper-V VM = one player.",
+
+  "vmRoot": "D:\\MultiSeat\\VMs",
+  "baseVhd": "D:\\MultiSeat\\Base\\Win11-Gaming-Base.vhdx",
+  "installIso": "",
+  "switchName": "Default Switch",
+
+  "gpu": {
+    "$comment": "Leave instancePath empty to use the first partitionable GPU. List them with Test-HostReadiness.ps1.",
+    "instancePath": "",
+    "partitionCount": 0
+  },
+
+  "defaults": {
+    "cpuCount": 6,
+    "memoryGB": 12,
+    "diskGB": 256,
+    "lowMmioGB": 1,
+    "highMmioGB": 32,
+    "agentPort": 47800,
+    "resolution": "1920x1080",
+    "fps": 60
+  },
+
+  "viewer": {
+    "$comment": "Program that shows a seat's screen on a host monitor. Placeholders: {address} {width} {height} {fps} {seat}",
+    "path": "C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe",
+    "arguments": "stream {address} Desktop --display-mode borderless --resolution {width}x{height} --fps {fps}",
+    "perSeatCopies": true
+  },
+
+  "tools": {
+    "$comment": "Optional: NirSoft SoundVolumeView.exe, used to send each viewer's sound to that seat's headset.",
+    "soundVolumeView": ""
+  },
+
+  "seats": [
+    {
+      "name": "Seat1",
+      "gpuShare": 0.5,
+      "monitor": 1,
+      "input": "router",
+      "audioOutput": "Headset 1"
+    },
+    {
+      "name": "Seat2",
+      "gpuShare": 0.5,
+      "monitor": 2,
+      "input": "router",
+      "audioOutput": "Headset 2",
+      "cpuCount": 6,
+      "memoryGB": 12
+    }
+  ],
+
+  "$inputModes": {
+    "router": "Host keeps the USB devices. SeatRouter (Interception driver) sends each keyboard/mouse to its seat. Works on Windows 10/11 Pro.",
+    "usb-dda": "A whole PCIe USB controller card is passed to the VM (set usbControllerLocationPath). Windows Server only. Headset mic works.",
+    "usbip": "Individual USB devices shared to the VM over the virtual network with usbip-win2 / VirtualHere. Headset mic works.",
+    "viewer": "No routing: the viewer window (Moonlight/Parsec) gets whatever input the host gives it. Good for one seat + host."
+  }
+}

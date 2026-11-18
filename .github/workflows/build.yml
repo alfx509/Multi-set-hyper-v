@@ -1,0 +1,56 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test protocol
+        run: dotnet test tests/MultiSeat.Protocol.Tests -c Release
+
+      - name: Publish SeatRouter and SeatAgent
+        shell: pwsh
+        run: |
+          dotnet publish src/SeatRouter/SeatRouter.csproj -c Release -r win-x64 --self-contained true -o out/SeatRouter
+          dotnet publish src/SeatAgent/SeatAgent.csproj -c Release -r win-x64 --self-contained true -o out/SeatAgent
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multiseat-binaries
+          path: out/
+
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse all scripts
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Include *.ps1, *.psm1 | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            foreach ($e in $errors) { Write-Host "$($_.Name):$($e.Extent.StartLineNumber) $($e.Message)"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
+          $results | Format-Table -AutoSize
+          if ($results) { exit 1 }
