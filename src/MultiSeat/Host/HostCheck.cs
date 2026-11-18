@@ -48,9 +48,9 @@ internal static class HostCheck
         }
         else if (sessionSeats > 0)
         {
-            results.Add(new(CheckLevel.Error,
-                "This is Windows 10/11. It allows only ONE signed-in person at a time, so extra seats would sign out " +
-                "the main desktop. Use Windows Server (the free evaluation works) for extra seats."));
+            results.Add(new(CheckLevel.Warning,
+                "This is Windows 10/11. As shipped, it allows only ONE signed-in person at a time, so starting a seat " +
+                "will normally sign out the main desktop. Windows Server supports several players."));
         }
 
         var monitors = Screen.AllScreens.Length;
