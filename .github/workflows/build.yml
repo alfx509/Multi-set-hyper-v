@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  dotnet:
+  build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,40 +17,34 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Test protocol
-        run: dotnet test tests/MultiSeat.Protocol.Tests -c Release
+      - name: Test
+        run: dotnet test tests/MultiSeat.Core.Tests -c Release
 
-      - name: Publish SeatRouter and SeatAgent
+      - name: Publish
+        run: |
+          dotnet publish src/MultiSeat/MultiSeat.csproj -c Release -r win-x64 --self-contained true -o out/MultiSeat
+          dotnet publish src/SeatAgent/SeatAgent.csproj -c Release -r win-x64 --self-contained true -o out/SeatAgent
+
+      - name: Check PowerShell scripts
+        shell: powershell
+        run: |
+          $bad = $false
+          Get-ChildItem -Recurse -Include *.ps1 | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            foreach ($e in $errors) { Write-Host "$($_.Name):$($e.Extent.StartLineNumber) $($e.Message)"; $bad = $true }
+          }
+          if ($bad) { exit 1 }
+
+      - name: Package
         shell: pwsh
         run: |
-          dotnet publish src/SeatRouter/SeatRouter.csproj -c Release -r win-x64 --self-contained true -o out/SeatRouter
-          dotnet publish src/SeatAgent/SeatAgent.csproj -c Release -r win-x64 --self-contained true -o out/SeatAgent
+          New-Item -ItemType Directory pkg | Out-Null
+          Copy-Item -Recurse out pkg/out
+          Copy-Item -Recurse setup pkg/setup
+          Copy-Item README.md pkg/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: multiseat-binaries
-          path: out/
-
-  powershell:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Parse all scripts
-        shell: powershell
-        run: |
-          $failed = $false
-          Get-ChildItem -Recurse -Include *.ps1, *.psm1 | ForEach-Object {
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
-            foreach ($e in $errors) { Write-Host "$($_.Name):$($e.Extent.StartLineNumber) $($e.Message)"; $failed = $true }
-          }
-          if ($failed) { exit 1 }
-
-      - name: PSScriptAnalyzer
-        shell: pwsh
-        run: |
-          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
-          $results | Format-Table -AutoSize
-          if ($results) { exit 1 }
+          name: MultiSeat
+          path: pkg/

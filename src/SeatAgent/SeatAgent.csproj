@@ -1,20 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <!-- WinExe: no console window inside the seat VM. Logs go to %ProgramData%\MultiSeat\agent.log -->
+    <!-- No window. Started in every session by the HKLM Run key; exits at once if this user is not a seat. -->
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
-    <AssemblyName>SeatAgent</AssemblyName>
     <RootNamespace>MultiSeat.Agent</RootNamespace>
   </PropertyGroup>
-
   <ItemGroup>
-    <ProjectReference Include="..\MultiSeat.Protocol\MultiSeat.Protocol.csproj" />
+    <ProjectReference Include="..\MultiSeat.Core\MultiSeat.Core.csproj" />
   </ItemGroup>
-
 </Project>

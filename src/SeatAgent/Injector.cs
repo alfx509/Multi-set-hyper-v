@@ -1,19 +1,16 @@
-using MultiSeat.Protocol;
+using MultiSeat.Core;
 using static MultiSeat.Agent.NativeInput;
 
 namespace MultiSeat.Agent;
 
-/// <summary>
-/// Turns protocol events into SendInput calls and remembers what is held down so that
-/// everything can be released if the router disconnects (no stuck keys).
-/// </summary>
+/// <summary>Turns packets into SendInput calls in this session; remembers held keys so nothing gets stuck.</summary>
 internal sealed class Injector
 {
-    private readonly HashSet<(ushort Code, bool Extended)> _keysDown = new();
-    private readonly HashSet<MouseButton> _buttonsDown = new();
+    private readonly HashSet<(ushort Code, bool Extended)> _keys = new();
+    private readonly HashSet<MouseButton> _buttons = new();
     private readonly Input[] _one = new Input[1];
 
-    public bool HasPressed => _keysDown.Count > 0 || _buttonsDown.Count > 0;
+    public bool HasPressed => _keys.Count > 0 || _buttons.Count > 0;
 
     public void Apply(in InputEvent e)
     {
@@ -26,10 +23,10 @@ internal sealed class Injector
                 Mouse(MouseMove, e.X, e.Y);
                 break;
             case PacketType.MouseMoveAbsolute:
-                Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, Clamp(e.X), Clamp(e.Y));
+                Mouse(MouseMove | MouseAbsolute | MouseVirtualDesk, Math.Clamp(e.X, 0, 65535), Math.Clamp(e.Y, 0, 65535));
                 break;
             case PacketType.MouseButton:
-                Button((MouseButton)e.Code, released: (e.Flags & 1) != 0);
+                Button((MouseButton)e.Code, (e.Flags & 1) != 0);
                 break;
             case PacketType.Wheel:
                 Mouse(MouseWheel, 0, 0, unchecked((uint)e.X));
@@ -40,22 +37,19 @@ internal sealed class Injector
             case PacketType.ReleaseAll:
                 ReleaseAll();
                 break;
-            case PacketType.Heartbeat:
-            default:
-                break;
         }
     }
 
     public void ReleaseAll()
     {
-        foreach (var (code, extended) in _keysDown.ToArray())
+        foreach (var (code, extended) in _keys.ToArray())
         {
             Key(code, KeyFlags.Up | (extended ? KeyFlags.Extended0 : KeyFlags.None));
         }
 
-        foreach (var button in _buttonsDown.ToArray())
+        foreach (var b in _buttons.ToArray())
         {
-            Button(button, released: true);
+            Button(b, true);
         }
     }
 
@@ -65,24 +59,14 @@ internal sealed class Injector
         var extended = flags.HasFlag(KeyFlags.Extended0);
         if (up)
         {
-            _keysDown.Remove((scanCode, extended));
+            _keys.Remove((scanCode, extended));
         }
         else
         {
-            _keysDown.Add((scanCode, extended));
+            _keys.Add((scanCode, extended));
         }
 
-        var native = KeyEventScanCode;
-        if (up)
-        {
-            native |= KeyEventKeyUp;
-        }
-
-        if (extended)
-        {
-            native |= KeyEventExtendedKey;
-        }
-
+        var native = KeyScanCode | (up ? KeyUp : 0) | (extended ? KeyExtended : 0);
         _one[0] = new Input
         {
             Type = InputKeyboard,
@@ -95,25 +79,20 @@ internal sealed class Injector
     {
         if (released)
         {
-            _buttonsDown.Remove(button);
+            _buttons.Remove(button);
         }
         else
         {
-            _buttonsDown.Add(button);
+            _buttons.Add(button);
         }
 
-        var (flags, data) = (button, released) switch
+        var (flags, data) = button switch
         {
-            (MouseButton.Left, false) => (MouseLeftDown, 0u),
-            (MouseButton.Left, true) => (MouseLeftUp, 0u),
-            (MouseButton.Right, false) => (MouseRightDown, 0u),
-            (MouseButton.Right, true) => (MouseRightUp, 0u),
-            (MouseButton.Middle, false) => (MouseMiddleDown, 0u),
-            (MouseButton.Middle, true) => (MouseMiddleUp, 0u),
-            (MouseButton.X1, false) => (MouseXDown, XButton1),
-            (MouseButton.X1, true) => (MouseXUp, XButton1),
-            (MouseButton.X2, false) => (MouseXDown, XButton2),
-            (MouseButton.X2, true) => (MouseXUp, XButton2),
+            MouseButton.Left => (released ? MouseLeftUp : MouseLeftDown, 0u),
+            MouseButton.Right => (released ? MouseRightUp : MouseRightDown, 0u),
+            MouseButton.Middle => (released ? MouseMiddleUp : MouseMiddleDown, 0u),
+            MouseButton.X1 => (released ? MouseXUp : MouseXDown, 1u),
+            MouseButton.X2 => (released ? MouseXUp : MouseXDown, 2u),
             _ => (0u, 0u),
         };
 
@@ -132,6 +111,4 @@ internal sealed class Injector
         };
         SendInput(1, _one, InputSize);
     }
-
-    private static int Clamp(int v) => Math.Clamp(v, 0, 65535);
 }

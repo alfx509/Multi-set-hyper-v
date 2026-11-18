@@ -1,46 +1,55 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using MultiSeat.Agent;
-using MultiSeat.Protocol;
+using MultiSeat.Core;
 
-// SeatAgent runs inside each seat VM, in the logged-on user's session (scheduled task at logon),
-// and injects the keyboard/mouse input that SeatRouter sends from the host.
+// Runs in every user session (HKLM Run key). If this user is a MultiSeat seat, receive that seat's
+// keyboard/mouse from the MultiSeat manager and type/click them into this session.
 
-var configPath = AgentConfig.DefaultPath;
-for (var i = 0; i < args.Length; i++)
+var settingsPath = AgentSettings.PathFor(Environment.UserName);
+if (!File.Exists(settingsPath))
 {
-    if (args[i] is "--config" && i + 1 < args.Length)
-    {
-        configPath = args[++i];
-    }
+    return 0; // not a seat user (for example the main desktop user)
 }
 
-var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MultiSeat");
-Directory.CreateDirectory(logDir);
-using var log = new StreamWriter(Path.Combine(logDir, "agent.log"), append: true) { AutoFlush = true };
-void Log(string message) => log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}");
+using var single = new Mutex(true, @"Local\MultiSeatAgent", out var first);
+if (!first)
+{
+    return 0;
+}
 
-AgentConfig config;
+var logPath = Path.Combine(Path.GetTempPath(), "MultiSeatAgent.log");
+using var log = new StreamWriter(logPath, append: true) { AutoFlush = true };
+void Log(string m) => log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {m}");
+
+AgentSettings settings;
 try
 {
-    config = AgentConfig.Load(configPath);
+    settings = JsonSerializer.Deserialize<AgentSettings>(File.ReadAllText(settingsPath), MultiSeatConfig.JsonOptions)
+        ?? throw new InvalidDataException("empty");
 }
-catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException)
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
 {
-    Log($"Cannot load {configPath}: {ex.Message}");
+    Log($"Cannot read {settingsPath}: {ex.Message}");
     return 1;
 }
 
-var codec = PacketCodec.FromBase64(config.Secret);
+if (!Pointer.UseSoftwarePointer())
+{
+    Log("Could not switch on the software mouse pointer; it applies after the next sign-in.");
+}
+
+var codec = PacketCodec.FromBase64(settings.Key);
 var guard = new ReplayGuard();
 var injector = new Injector();
 
 using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-socket.Bind(new IPEndPoint(IPAddress.Parse(config.BindAddress), config.Port));
+socket.Bind(new IPEndPoint(IPAddress.Loopback, settings.Port));
 socket.ReceiveTimeout = 250;
-Log($"{config.Name}: listening on udp/{config.BindAddress}:{config.Port}");
+Log($"{settings.Seat}: listening on 127.0.0.1:{settings.Port}");
 
-var buffer = new byte[2048];
+var buffer = new byte[256];
 var lastPacket = Environment.TickCount64;
 long rejected = 0;
 
@@ -59,11 +68,9 @@ while (true)
     var now = Environment.TickCount64;
     if (length == 0)
     {
-        // Router gone (crashed, host mode, network hiccup): never leave keys stuck down.
-        if (injector.HasPressed && now - lastPacket > config.WatchdogMs)
+        if (injector.HasPressed && now - lastPacket > settings.WatchdogMs)
         {
-            injector.ReleaseAll();
-            Log("Watchdog: no packets, released all keys and buttons.");
+            injector.ReleaseAll(); // manager stopped or crashed: never leave keys held down
         }
 
         continue;
@@ -74,7 +81,7 @@ while (true)
     {
         if (++rejected % 100 == 1)
         {
-            Log($"Rejected packet(s): {rejected} total (wrong secret, clock skew or replay).");
+            Log($"Rejected {rejected} packet(s) (wrong key or replay).");
         }
 
         continue;
@@ -84,7 +91,6 @@ while (true)
     if (guard.SessionChanged)
     {
         injector.ReleaseAll();
-        Log($"Router session {header.Session:x8} connected.");
     }
 
     injector.Apply(e);
