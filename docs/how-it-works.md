@@ -31,7 +31,8 @@ one player's hardware.
 | `src/MultiSeat` | The app: seat list, pairing, start/stop, input router, audio routing, seat windows |
 | `src/SeatAgent` | Tiny program in every player session (scheduled task at sign-in, restarted if it stops); types the player's keys and moves their mouse |
 | `src/MultiSeat.Core` | Settings, packet format (shared, unit-tested) |
-| `setup/Install-MultiSeat.ps1` | One-time Windows setup (driver, policies, users, install) |
+| `installer/MultiSeat.iss` | The all-in-one installer (Inno Setup) |
+| `setup/Configure-MultiSeat.ps1` | Windows setup the installer runs (driver, policies, agent task) |
 
 ## Why each part is needed
 

@@ -1,0 +1,20 @@
+MultiSeat - one PC, many players
+
+This installer sets up everything MultiSeat needs:
+
+  * the MultiSeat app and the player agent
+  * the Interception keyboard/mouse driver (tells keyboards and mice apart)
+    by Francisco Lopes - free for NON-COMMERCIAL use
+  * Windows settings: Remote Desktop for this PC only (no network port is opened),
+    graphics card and 60 fps for players, sound and microphones, saved player passwords
+
+Your PC restarts at the end (needed for the keyboard/mouse driver).
+
+Windows version:
+  * Windows Server 2019/2022/2025: several people play at the same time.
+    2-3 players work as is; for 4-8 players tick "Allow 4 to 8 players".
+  * Windows 10/11 Pro: MultiSeat installs and runs, but Windows normally allows only
+    one signed-in person at a time, so opening a player's desktop locks yours.
+
+After the restart: open MultiSeat, click "Add player" (it can create the player's
+Windows account for you), click "Assign devices", then "Start".

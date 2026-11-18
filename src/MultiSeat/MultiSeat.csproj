@@ -18,7 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\MultiSeat.Core\MultiSeat.Core.csproj" />
   </ItemGroup>
-  <!-- interception.dll is downloaded by setup\Install-MultiSeat.ps1, not redistributed here. -->
+  <!-- interception.dll is downloaded by setup\Get-Interception.ps1 (build.ps1 does this). -->
   <ItemGroup>
     <None Include="..\..\third_party\Interception\library\x64\interception.dll"
           Condition="Exists('..\..\third_party\Interception\library\x64\interception.dll')"

@@ -54,19 +54,28 @@ automatically, and it keeps running from the tray icon.
 - One keyboard + mouse per player (USB or wireless dongle). Headsets: USB headsets are easiest.
 - A good CPU (6+ cores for 3 players) and 16–32 GB RAM.
 
-## Install
+## Install (one file)
 
-On the gaming PC, in PowerShell **as Administrator**, in this folder:
+1. Download **`MultiSeat-Setup.exe`**: from the repository's **Releases** page, or from the latest
+   **Actions → build** run (artifact *MultiSeat-Setup*).
+2. Run it. Windows may show "Windows protected your PC" (the installer is not code-signed yet):
+   click **More info → Run anyway**.
+3. On Windows Server, tick **"Allow 4 to 8 players"** if you want more than 3 players.
+4. The PC restarts at the end.
+5. Open **MultiSeat** → **➕ Add player** (type a user name and password – MultiSeat creates the
+   Windows account) → **🎮 Assign devices** → **▶ Start**.
+
+Everything is inside the installer: the app, the player agent, the keyboard/mouse driver, all Windows
+settings, and the .NET runtime. Nothing else to download.
+
+<details><summary>Build it yourself</summary>
 
 ```powershell
-winget install Microsoft.DotNet.SDK.8      # once, to build
-.\build.ps1
-.\setup\Install-MultiSeat.ps1 -Players 2                       # 2 players (creates user player2)
-# or, for up to 8 players:
-.\setup\Install-MultiSeat.ps1 -Players 8 -InstallSessionHost    # creates player2 … player8
+winget install Microsoft.DotNet.SDK.8
+winget install JRSoftware.InnoSetup
+.\build.ps1 -Installer          # → out\installer\MultiSeat-Setup.exe
 ```
-
-Restart the PC, then open **MultiSeat** from the desktop.
+</details>
 
 Full guide: [docs/guide.md](docs/guide.md) · Problems: [docs/troubleshooting.md](docs/troubleshooting.md) ·
 How it works: [docs/how-it-works.md](docs/how-it-works.md) · Hardware for 2–8 players: [docs/hardware.md](docs/hardware.md)
@@ -77,7 +86,7 @@ How it works: [docs/how-it-works.md](docs/how-it-works.md) · Hardware for 2–8
 - Every player needs their **own game license / account** (like separate PCs).
 - Some games allow only one copy per PC, and some anti-cheat systems block this. Test your games.
 - **Gamepads and other USB devices** in seats are **experimental** (Remote Desktop USB redirection).
-- The keyboard/mouse driver (Interception) is free for **non-commercial** use.
+- The keyboard/mouse driver ([Interception](https://github.com/oblitum/Interception) by Francisco Lopes) is included in the installer under its license: free for **non-commercial** use.
 
 ## Status
 

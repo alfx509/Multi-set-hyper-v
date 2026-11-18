@@ -12,7 +12,7 @@ internal enum CheckLevel
 
 internal sealed record CheckResult(CheckLevel Level, string Message);
 
-/// <summary>Checks that this PC is set up for multiple seats. Fixes are in setup\Install-MultiSeat.ps1.</summary>
+/// <summary>Checks that this PC is set up for multiple seats. Fixes: run MultiSeat-Setup.exe again.</summary>
 internal static class HostCheck
 {
     private const string TsPolicy = @"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services";
@@ -38,12 +38,12 @@ internal static class HostCheck
             {
                 results.Add(new(CheckLevel.Error,
                     $"You have {sessionSeats + 1} players, but Windows Server allows only 3 (main desktop + 2) without the " +
-                    "Remote Desktop Session Host role. Run: setup\\Install-MultiSeat.ps1 -InstallSessionHost"));
+                    "Remote Desktop Session Host role. Run MultiSeat-Setup.exe again and tick \"Allow 4 to 8 players\"."));
             }
             else
             {
                 results.Add(new(CheckLevel.Ok,
-                    "Windows Server: up to 3 players. For 4-8 players run setup\\Install-MultiSeat.ps1 -InstallSessionHost."));
+                    "Windows Server: up to 3 players. For 4-8 players run MultiSeat-Setup.exe again and tick \"Allow 4 to 8 players\"."));
             }
         }
         else if (sessionSeats > 0)
@@ -67,12 +67,12 @@ internal static class HostCheck
 
         if (ReadInt(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections") != 0)
         {
-            results.Add(new(CheckLevel.Error, "Remote Desktop is turned off. Run setup\\Install-MultiSeat.ps1."));
+            results.Add(new(CheckLevel.Error, "Remote Desktop is turned off. Run MultiSeat-Setup.exe again."));
         }
 
         if (ReadInt(Registry.LocalMachine, TsPolicy, "bEnumerateHWBeforeSW") != 1)
         {
-            results.Add(new(CheckLevel.Warning, "Seats will not use the graphics card (GPU policy not set). Run setup\\Install-MultiSeat.ps1."));
+            results.Add(new(CheckLevel.Warning, "Seats will not use the graphics card (GPU policy not set). Run MultiSeat-Setup.exe again."));
         }
         else
         {
@@ -81,12 +81,12 @@ internal static class HostCheck
 
         if (!File.Exists(Path.Combine(Environment.SystemDirectory, "drivers", "keyboard.sys")))
         {
-            results.Add(new(CheckLevel.Error, "Interception input driver not installed. Run setup\\Install-MultiSeat.ps1 and restart."));
+            results.Add(new(CheckLevel.Error, "Interception input driver not installed. Run MultiSeat-Setup.exe again and restart."));
         }
 
         if (!File.Exists(AppPaths.AgentExe))
         {
-            results.Add(new(CheckLevel.Error, $"Seat agent not installed ({AppPaths.AgentExe}). Run setup\\Install-MultiSeat.ps1."));
+            results.Add(new(CheckLevel.Error, $"Seat agent not installed ({AppPaths.AgentExe}). Run MultiSeat-Setup.exe again."));
         }
 
         foreach (var seat in config.Seats.Where(s => !s.IsConsole && !string.IsNullOrWhiteSpace(s.UserName)))

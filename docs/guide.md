@@ -16,21 +16,14 @@ Then install the latest graphics driver from NVIDIA / AMD / Intel, and Steam or 
 
 ## 3. Install MultiSeat
 
-PowerShell as Administrator, in the MultiSeat folder:
+Run **`MultiSeat-Setup.exe`** (if Windows warns "Windows protected your PC": *More info → Run anyway*).
+On Windows Server, tick **"Allow 4 to 8 players"** for more than 3 players. The PC restarts at the end.
 
-```powershell
-winget install Microsoft.DotNet.SDK.8
-.\build.ps1
-.\setup\Install-MultiSeat.ps1 -Players 2
-```
+## 4. Steam and games for each player
 
-For 4–8 players use `-Players 8 -InstallSessionHost` (Windows Server only).
-It asks for a password for each new user. **Restart the PC.**
-
-## 4. First sign-in of each player (once)
-
-Sign out, sign in as `player2`, let Windows finish setting up, sign in to Steam with player 2's
-account, sign out. Repeat for every other player. Sign in again as yourself.
+Each player needs their own Windows account (MultiSeat creates it in the next step). After adding the
+players, you can sign in once as each one to install/sign in to Steam – or just do it the first time
+they play.
 
 ## 5. Set up the players
 
@@ -38,8 +31,8 @@ Open **MultiSeat** (desktop icon).
 
 1. Click **🖥 Identify monitors** – a big number appears on each screen.
 2. Double-click **Seat 1 (this desktop)** and choose your own monitor.
-3. Click **➕ Add player** for each extra player: Windows user (`player2`), its password, and its monitor.
-   Headset and microphone: choose the player's headset.
+3. Click **➕ Add player** for each extra player: user name (for example `player2`), a password, and
+   the monitor. If the user doesn't exist yet, MultiSeat creates it. Choose the player's headset and microphone.
 4. Click **🎮 Assign devices…**. On each player's monitor a big message appears: that player presses
    a key on **their** keyboard and clicks **their** mouse. (Esc skips.)
 5. Click **✔ Check this PC**. Fix anything marked ✖.

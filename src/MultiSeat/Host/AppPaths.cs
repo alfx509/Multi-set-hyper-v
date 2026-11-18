@@ -11,6 +11,6 @@ internal static class AppPaths
 
     public static string ClientsDirectory => Path.Combine(Data, "clients");
 
-    public static string AgentExe => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "MultiSeat", "Agent", "SeatAgent.exe");
+    /// <summary>The installer puts the agent in an "Agent" folder next to MultiSeat.exe.</summary>
+    public static string AgentExe => Path.Combine(AppContext.BaseDirectory, "Agent", "SeatAgent.exe");
 }

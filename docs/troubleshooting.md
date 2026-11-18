@@ -12,7 +12,7 @@ license terms and Windows updates regularly break it, so MultiSeat does not use 
 
 Use **Windows Server** (2019/2022/2025, the free 180-day evaluation is fine):
 2–3 players work as is; 4–8 players need the *Remote Desktop Session Host* role
-(`setup\Install-MultiSeat.ps1 -InstallSessionHost`), which works for 120 days before RDS licenses are needed.
+(run MultiSeat-Setup.exe and tick *Allow 4 to 8 players*), which works for 120 days before RDS licenses are needed.
 
 ## Problems
 
@@ -20,10 +20,10 @@ Use **Windows Server** (2019/2022/2025, the free 180-day evaluation is fine):
 Extra seats need Windows Server. Windows 10/11 sign out the main desktop when a second user signs in.
 
 **"The Interception input driver is not running"**
-Run `setup\Install-MultiSeat.ps1` and restart the PC.
+Run MultiSeat-Setup.exe again and restart the PC. Details of the last setup: `C:\ProgramData\MultiSeat\setup.log`.
 
 **A seat asks for a password / "Your credentials did not work"**
-Edit the seat and type the password again. Make sure you restarted after `Install-MultiSeat.ps1`
+Edit the seat and type the password again. Make sure you restarted after installing
 (it allows saved passwords for 127.0.0.x).
 
 **A seat window opens on the wrong monitor or is not full screen**
@@ -44,7 +44,7 @@ Options → Display pointer trails* (shortest). Then tell us your Windows versio
 Set the sensitivity inside the seat (Mouse settings) or in the game. Turn off *Enhance pointer precision* for 1:1 movement.
 
 **Games are slow or use "Microsoft Basic Render Driver" in a seat**
-The GPU policy is missing: run `setup\Install-MultiSeat.ps1` again and restart. Check that the game
+The GPU policy is missing: run MultiSeat-Setup.exe again and restart. Check that the game
 shows your real graphics card.
 
 **No sound / wrong headset**
@@ -53,7 +53,7 @@ shows your real graphics card.
   Volume mixer*, find `mstsc.exe` from `C:\ProgramData\MultiSeat\clients\seatNNNNN\` and choose the headset.
 
 **More than 3 players on Windows Server**
-Run `setup\Install-MultiSeat.ps1 -InstallSessionHost` and restart. Works 120 days without licenses;
+Run MultiSeat-Setup.exe again, tick *Allow 4 to 8 players*, and restart. Works 120 days without licenses;
 then add RDS licenses (Microsoft licensing).
 
 **With 6–8 players some screens are slow or the CPU is very busy**
@@ -66,3 +66,7 @@ Try a simple keyboard/mouse for that player.
 
 **My keyboard is stuck in a seat**
 Ctrl+Alt+F12 on it, or press Stop, or close MultiSeat – every device returns to the main desktop.
+
+**"Could not create user" when adding a player**
+Windows Server requires complex passwords by default (8+ characters with upper case, lower case and a
+digit or symbol). Use a stronger password.

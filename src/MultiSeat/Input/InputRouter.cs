@@ -52,7 +52,7 @@ internal sealed class InputRouter : IDisposable
             var context = Interception.CreateContext();
             if (context == IntPtr.Zero)
             {
-                error = "The Interception input driver is not running. Run setup\\Install-MultiSeat.ps1 and restart the PC.";
+                error = "The Interception input driver is not running. Run MultiSeat-Setup.exe again and restart the PC.";
                 return null;
             }
 
@@ -61,7 +61,7 @@ internal sealed class InputRouter : IDisposable
         }
         catch (DllNotFoundException)
         {
-            error = "interception.dll is missing next to MultiSeat.exe. Run setup\\Install-MultiSeat.ps1.";
+            error = "interception.dll is missing next to MultiSeat.exe. Run MultiSeat-Setup.exe again.";
             return null;
         }
     }

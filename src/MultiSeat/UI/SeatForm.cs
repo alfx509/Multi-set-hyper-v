@@ -69,8 +69,9 @@ internal sealed class SeatForm : Form
             Row("USB devices\n(experimental:\ngamepads etc.)", _usb);
             grid.Controls.Add(new Label
             {
-                Text = "Password is saved in Windows Credential Manager, not in MultiSeat's files.\n" +
-                       "Leave it empty to keep the saved one. USB devices: one Device Manager\n" +
+                Text = "New user name? MultiSeat creates the Windows account with this password.\n" +
+                       "The password is saved in Windows Credential Manager, not in MultiSeat's files;\n" +
+                       "leave it empty to keep the saved one. USB devices: one Device Manager\n" +
                        "\"Device instance path\" per line; the device then belongs to this seat.",
                 AutoSize = true,
                 ForeColor = SystemColors.GrayText,
@@ -227,6 +228,34 @@ internal sealed class SeatForm : Form
         {
             MessageBox.Show(this, "Type the seat's local Windows user name (letters, digits, . _ -).", Text);
             return;
+        }
+
+        // New player account: offer to create it right here.
+        if (!_seat.IsConsole && !Host.SecureFile.UserExists(_user.Text.Trim()))
+        {
+            if (_password.Text.Length == 0)
+            {
+                MessageBox.Show(this, $"There is no Windows user \"{_user.Text.Trim()}\" yet.\nType a password and MultiSeat will create it.", Text);
+                _password.Focus();
+                return;
+            }
+
+            if (MessageBox.Show(this, $"Create the Windows user \"{_user.Text.Trim()}\" with this password?", Text,
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                Host.LocalUsers.Create(_user.Text.Trim(), _password.Text);
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                MessageBox.Show(this, ex.Message + "\n\nWindows may require a longer or more complex password.", Text,
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
         }
 
         _seat.Name = _name.Text.Trim();
