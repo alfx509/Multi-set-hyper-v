@@ -26,24 +26,43 @@ internal static class HostCheck
         var isServer = productType is "ServerNT" or "LanmanNT";
         if (isServer)
         {
-            var rdsInstalled = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\TermServLicensing") is not null
-                || ReadInt(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Terminal Server\RCM\Licensing Core", "LicensingMode") is 2 or 4;
-            if (sessionSeats > 2 && !rdsInstalled)
+            // TSAppCompat = 1 when the Remote Desktop Session Host role is installed.
+            var sessionHost = ReadInt(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Terminal Server", "TSAppCompat") == 1;
+            if (sessionHost)
             {
-                results.Add(new(CheckLevel.Warning,
-                    $"Windows Server without the Remote Desktop Session Host role allows 2 extra seats; you have {sessionSeats}. " +
-                    "Install the RDS Session Host role and licenses for more."));
+                results.Add(new(CheckLevel.Ok,
+                    $"Windows Server with Remote Desktop Session Host: up to {MultiSeatConfig.MaxSeats} players. " +
+                    "(Without RDS licenses Windows allows 120 days; then add licenses.)"));
+            }
+            else if (sessionSeats > 2)
+            {
+                results.Add(new(CheckLevel.Error,
+                    $"You have {sessionSeats + 1} players, but Windows Server allows only 3 (main desktop + 2) without the " +
+                    "Remote Desktop Session Host role. Run: setup\\Install-MultiSeat.ps1 -InstallSessionHost"));
             }
             else
             {
-                results.Add(new(CheckLevel.Ok, "Windows Server: several people can be signed in at the same time."));
+                results.Add(new(CheckLevel.Ok,
+                    "Windows Server: up to 3 players. For 4-8 players run setup\\Install-MultiSeat.ps1 -InstallSessionHost."));
             }
         }
         else if (sessionSeats > 0)
         {
             results.Add(new(CheckLevel.Error,
-                "This is Windows 10/11 (client). It allows only ONE signed-in person at a time, so extra seats " +
-                "would sign out the main desktop. Use Windows Server (the free evaluation works) for extra seats."));
+                "This is Windows 10/11. It allows only ONE signed-in person at a time, so extra seats would sign out " +
+                "the main desktop. Use Windows Server (the free evaluation works) for extra seats."));
+        }
+
+        var monitors = Screen.AllScreens.Length;
+        var wanted = config.Seats.Count(s => !string.IsNullOrEmpty(s.Monitor));
+        if (config.Seats.Count > monitors)
+        {
+            results.Add(new(CheckLevel.Warning,
+                $"{config.Seats.Count} players but only {monitors} monitor(s) connected. Every player needs a monitor."));
+        }
+        else
+        {
+            results.Add(new(CheckLevel.Ok, $"{monitors} monitor(s) connected, {wanted} assigned."));
         }
 
         if (ReadInt(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections") != 0)

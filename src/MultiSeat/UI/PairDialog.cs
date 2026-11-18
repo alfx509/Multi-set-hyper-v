@@ -9,25 +9,28 @@ internal sealed class PairDialog : Form
     private readonly InputRouter _router;
     private readonly bool _keyboard;
     private readonly CancellationTokenSource _cancel = new();
+    private readonly Screen? _screen;
 
-    public PairDialog(InputRouter router, bool keyboard, string seatName)
+    public PairDialog(InputRouter router, bool keyboard, string seatName, string? step = null, Screen? screen = null)
     {
         _router = router;
         _keyboard = keyboard;
-        Text = keyboard ? "Assign keyboard" : "Assign mouse";
+        Text = (keyboard ? "Assign keyboard" : "Assign mouse") + (step is null ? "" : $" – {step}");
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
+        _screen = screen;
         MinimizeBox = MaximizeBox = false;
-        ClientSize = new Size(460, 150);
+        ClientSize = new Size(520, 210);
+        TopMost = true;
 
         var label = new Label
         {
             Text = keyboard
-                ? $"Press any key on the keyboard for \"{seatName}\".\n\n(Esc on any keyboard = cancel)"
-                : $"Click the LEFT button of the mouse for \"{seatName}\".\n\n(Esc on any keyboard = cancel)",
+                ? $"{seatName}:\npress any key on YOUR keyboard.\n\n(Esc on any keyboard = skip)"
+                : $"{seatName}:\nclick the LEFT button of YOUR mouse.\n\n(Esc on any keyboard = skip)",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font(Font.FontFamily, 11),
+            Font = new Font(Font.FontFamily, 14, FontStyle.Bold),
         };
         var cancel = new Button { Text = "Cancel", Dock = DockStyle.Bottom, Height = 32 };
         cancel.Click += (_, _) => _cancel.Cancel();
@@ -36,6 +39,19 @@ internal sealed class PairDialog : Form
     }
 
     public InputDevice? Result { get; private set; }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        // Show the question on the player's own monitor, so they see it even with 8 screens.
+        if (_screen is not null)
+        {
+            var b = _screen.WorkingArea;
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(b.X + ((b.Width - Width) / 2), b.Y + ((b.Height - Height) / 2));
+        }
+    }
 
     protected override async void OnShown(EventArgs e)
     {

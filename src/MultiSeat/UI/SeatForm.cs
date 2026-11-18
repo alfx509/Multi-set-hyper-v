@@ -174,7 +174,11 @@ internal sealed class SeatForm : Form
         var clear = new Button { Text = "Clear", AutoSize = true };
         assign.Click += (_, _) =>
         {
-            using var dialog = new PairDialog(_router!, keyboard, string.IsNullOrWhiteSpace(_name.Text) ? "this seat" : _name.Text);
+            using var dialog = new PairDialog(
+                _router!,
+                keyboard,
+                string.IsNullOrWhiteSpace(_name.Text) ? "this seat" : _name.Text,
+                screen: Monitors.Find((_monitor.SelectedItem as Choice)?.Id));
             if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Result is { } device)
             {
                 if (keyboard)

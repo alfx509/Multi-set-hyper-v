@@ -103,4 +103,30 @@ public class ConfigTests
         Assert.Contains("desktopwidth:i:2560", rdp);
         Assert.Contains("audiocapturemode:i:1", rdp);
     }
+
+    [Fact]
+    public void SupportsEightPlayersButNotNine()
+    {
+        var config = MultiSeatConfig.CreateDefault();
+        config.Seats[0].Monitor = "\\\\.\\DISPLAY1";
+        for (var i = 2; i <= MultiSeatConfig.MaxSeats; i++)
+        {
+            config.Seats.Add(new Seat
+            {
+                Name = $"Player {i}",
+                UserName = $"player{i}",
+                Monitor = $"\\\\.\\DISPLAY{i}",
+                Keyboard = new InputDevice(i, $"kb{i}"),
+                Mouse = new InputDevice(10 + i, $"m{i}"),
+            });
+        }
+
+        config.Normalize();
+        Assert.Empty(config.Validate());
+        Assert.Equal(8, config.Seats.Select(s => s.LoopbackAddress).Distinct().Count());
+
+        config.Seats.Add(new Seat { Name = "Player 9", UserName = "player9", Monitor = "x", Keyboard = new InputDevice(1, "k"), Mouse = new InputDevice(11, "m") });
+        config.Normalize();
+        Assert.Contains(config.Validate(), p => p.Contains("up to 8"));
+    }
 }

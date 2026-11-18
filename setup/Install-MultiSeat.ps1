@@ -12,15 +12,21 @@
     5. Lets seat sessions use the graphics card, at 60 fps, with sound, microphone and USB devices
     6. Allows the saved seat passwords to be used for the local (127.0.0.x) seat connections
     7. Starts the Windows Audio service (it is off by default on Windows Server)
-    8. Optionally creates the Windows users for the players (-CreateUsers player2,player3)
+    8. Optionally creates the Windows users for the players
+    9. Optionally installs the Remote Desktop Session Host role, needed for 4-8 players
+       (Windows Server allows 3 players without it). Without RDS licenses it works for 120 days.
 
 .EXAMPLE
-    .\setup\Install-MultiSeat.ps1 -CreateUsers player2,player3
+    .\setup\Install-MultiSeat.ps1 -Players 2                       # 2 players: creates player2
+    .\setup\Install-MultiSeat.ps1 -Players 8 -InstallSessionHost   # 8 players: creates player2..player8
+    .\setup\Install-MultiSeat.ps1 -CreateUsers anna,omar            # your own user names
     .\setup\Install-MultiSeat.ps1 -Uninstall
 #>
 [CmdletBinding()]
 param(
+    [ValidateRange(1, 8)][int]$Players,
     [string[]]$CreateUsers,
+    [switch]$InstallSessionHost,
     [string]$SourceDir,
     [switch]$SkipInterception,
     [switch]$Uninstall
@@ -50,6 +56,7 @@ if ($Uninstall) {
     Step 'Removing MultiSeat'
     Get-Process MultiSeat, SeatAgent -ErrorAction SilentlyContinue | Stop-Process -Force
     Remove-ItemProperty -Path $runKey -Name 'MultiSeatAgent' -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName 'MultiSeat Agent' -Confirm:$false -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
     Remove-Item -Force (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'MultiSeat.lnk') -ErrorAction SilentlyContinue
     Remove-Item -Force (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'MultiSeat.lnk') -ErrorAction SilentlyContinue
@@ -77,8 +84,20 @@ Get-Process SeatAgent -ErrorAction SilentlyContinue | Stop-Process -Force
 New-Item -ItemType Directory -Force -Path $installDir, "$installDir\Agent" | Out-Null
 Copy-Item -Recurse -Force (Join-Path $SourceDir 'MultiSeat\*') $installDir
 Copy-Item -Recurse -Force (Join-Path $SourceDir 'SeatAgent\*') "$installDir\Agent"
-Set-Reg $runKey 'MultiSeatAgent' "`"$agentExe`"" 'String'
-Ok 'Seat agent starts in every session (it exits at once for users that are not seats)'
+# The agent starts at every sign-in, in that user's session, and is restarted if it ever stops.
+# (It exits at once for users that are not players.)
+Remove-ItemProperty -Path $runKey -Name 'MultiSeatAgent' -ErrorAction SilentlyContinue
+$task = @{
+    TaskName    = 'MultiSeat Agent'
+    Action      = New-ScheduledTaskAction -Execute $agentExe
+    Trigger     = New-ScheduledTaskTrigger -AtLogOn
+    Principal   = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+    Settings    = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) `
+                    -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances Parallel
+    Description = 'Gives each MultiSeat player their own keyboard and mouse.'
+}
+Register-ScheduledTask @task -Force | Out-Null
+Ok 'Seat agent starts at every sign-in (scheduled task "MultiSeat Agent")'
 
 # Agent settings folder: users may open it, but each seat file is readable only by its own user.
 $agents = Join-Path $dataDir 'agents'
@@ -152,7 +171,23 @@ foreach ($svc in 'AudioEndpointBuilder', 'Audiosrv') {
 }
 Ok 'Audio services on'
 
+# ------------------------------------------------------------------ Session Host (4-8 players)
+if ($InstallSessionHost) {
+    Step 'Remote Desktop Session Host (for 4-8 players)'
+    if ($os.ProductType -eq 1) {
+        Warn 'Only available on Windows Server - skipped.'
+    } elseif ((Get-WindowsFeature RDS-RD-Server).Installed) {
+        Ok 'already installed'
+    } else {
+        Install-WindowsFeature RDS-RD-Server -IncludeManagementTools | Out-Null
+        Ok 'Installed. Windows gives 120 days without RDS licenses; after that add RDS licenses (per user or per device).'
+    }
+}
+
 # ------------------------------------------------------------------ Users
+if ($Players -gt 1) {
+    $CreateUsers = @($CreateUsers) + @(2..$Players | ForEach-Object { "player$_" }) | Where-Object { $_ } | Select-Object -Unique
+}
 foreach ($user in $CreateUsers) {
     Step "User $user"
     if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
@@ -166,4 +201,7 @@ foreach ($user in $CreateUsers) {
 }
 
 Write-Host ''
-Write-Host 'Done. RESTART the PC, then open MultiSeat from the desktop.' -ForegroundColor Green
+Write-Host 'Done. RESTART the PC, then:' -ForegroundColor Green
+Write-Host '  1. Sign in once as each player (Windows sets up their desktop), then sign out.'
+Write-Host '  2. Sign in as yourself and open MultiSeat from the desktop.'
+Write-Host '  3. Add the players, press "Assign devices", then Start.'

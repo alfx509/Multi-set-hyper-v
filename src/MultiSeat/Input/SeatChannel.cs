@@ -26,8 +26,18 @@ internal sealed class SeatChannel : IDisposable
     /// <summary>Ctrl+Alt+F12: the seat's keyboard/mouse temporarily control the main desktop.</summary>
     public volatile bool HostMode;
 
+    private long _lastInput;
+
+    /// <summary>Environment.TickCount64 of the last real key/mouse event (not heartbeats). Drives the UI activity light.</summary>
+    public long LastInput => Interlocked.Read(ref _lastInput);
+
     public void Send(in InputEvent e)
     {
+        if (e.Type is not (PacketType.Heartbeat or PacketType.ReleaseAll))
+        {
+            Interlocked.Exchange(ref _lastInput, Environment.TickCount64);
+        }
+
         Span<byte> buffer = stackalloc byte[PacketCodec.PacketSize];
         lock (_gate)
         {

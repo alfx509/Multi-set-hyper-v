@@ -1,5 +1,21 @@
 # Troubleshooting
 
+## Can I use Windows 10 / 11 Pro?
+
+Not for extra players, sorry. Windows Pro *does* include Remote Desktop and Hyper-V, but its license and
+its design allow **only one signed-in person at a time**: when a second user signs in, the first is
+signed out. There is no setting that changes this.
+
+Guides that say "it works on Pro" use **RDP Wrapper** or patch `termsrv.dll`. That breaks Microsoft's
+license terms and Windows updates regularly break it, so MultiSeat does not use or support it.
+(ASTER works on Pro because it is a licensed product with its own technology.)
+
+Use **Windows Server** (2019/2022/2025, the free 180-day evaluation is fine):
+2–3 players work as is; 4–8 players need the *Remote Desktop Session Host* role
+(`setup\Install-MultiSeat.ps1 -InstallSessionHost`), which works for 120 days before RDS licenses are needed.
+
+## Problems
+
 **"This is Windows 10/11 (client)… only ONE signed-in person"**
 Extra seats need Windows Server. Windows 10/11 sign out the main desktop when a second user signs in.
 
@@ -37,7 +53,16 @@ shows your real graphics card.
   Volume mixer*, find `mstsc.exe` from `C:\ProgramData\MultiSeat\clients\seatNNNNN\` and choose the headset.
 
 **More than 3 players on Windows Server**
-Install the *Remote Desktop Session Host* role and RDS licenses (Microsoft licensing).
+Run `setup\Install-MultiSeat.ps1 -InstallSessionHost` and restart. Works 120 days without licenses;
+then add RDS licenses (Microsoft licensing).
+
+**With 6–8 players some screens are slow or the CPU is very busy**
+NVIDIA GeForce cards limit how many video encodes run at once; extra players then use the CPU.
+Update the GPU driver, lower the game resolution, or see [hardware.md](hardware.md).
+
+**"Assign devices" never reacts for one player**
+Some gaming mice/keyboards use 2 slots; with many players the 10 keyboard / 10 mouse slots can run out.
+Try a simple keyboard/mouse for that player.
 
 **My keyboard is stuck in a seat**
 Ctrl+Alt+F12 on it, or press Stop, or close MultiSeat – every device returns to the main desktop.

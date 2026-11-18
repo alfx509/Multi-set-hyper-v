@@ -11,6 +11,9 @@ public sealed class MultiSeatConfig
 {
     public const int FirstAgentPort = 47810;
 
+    /// <summary>Most players supported: main desktop + 7 seats (Interception handles 10 keyboards and 10 mice).</summary>
+    public const int MaxSeats = 8;
+
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -27,6 +30,12 @@ public sealed class MultiSeatConfig
 
     /// <summary>Stream frame rate for seat sessions (Windows caps remote sessions at 60).</summary>
     public int FrameRate { get; set; } = 60;
+
+    /// <summary>Press Start automatically when MultiSeat opens.</summary>
+    public bool AutoStartSeats { get; set; }
+
+    /// <summary>If a seat's screen closes while playing, open it again.</summary>
+    public bool AutoReconnect { get; set; } = true;
 
     public static MultiSeatConfig CreateDefault() => new()
     {
@@ -104,6 +113,11 @@ public sealed class MultiSeatConfig
         var users = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var monitors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var devices = new HashSet<int>();
+
+        if (Seats.Count > MaxSeats)
+        {
+            yield return $"MultiSeat supports up to {MaxSeats} players; you have {Seats.Count} seats.";
+        }
 
         foreach (var seat in Seats)
         {
