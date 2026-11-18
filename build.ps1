@@ -25,9 +25,12 @@ function Invoke-Native {
 
 if (-not $SkipTests) { Invoke-Native dotnet @('test', 'tests\MultiSeat.Core.Tests', '-c', 'Release') }
 
+# "0.3.0-test.1" → file version 0.3.0 (Windows file versions are numbers only).
+$numeric = ($Version -split '[-+]')[0]
+
 foreach ($p in 'MultiSeat', 'SeatAgent') {
     Invoke-Native dotnet @('publish', "src\$p\$p.csproj", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
-        "-p:Version=$Version", '-o', "out\$p")
+        "-p:Version=$Version", "-p:FileVersion=$numeric", "-p:AssemblyVersion=$numeric", '-o', "out\$p")
 }
 
 if ($Installer) {
@@ -39,7 +42,7 @@ if ($Installer) {
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if (-not $iscc) { throw 'Inno Setup not found. Install it: winget install JRSoftware.InnoSetup' }
-    Invoke-Native $iscc @("/DAppVersion=$Version", 'installer\MultiSeat.iss')
+    Invoke-Native $iscc @("/DAppVersion=$Version", "/DNumericVersion=$numeric", 'installer\MultiSeat.iss')
     Write-Host ''
     Write-Host "Installer: out\installer\MultiSeat-Setup.exe" -ForegroundColor Green
 } else {

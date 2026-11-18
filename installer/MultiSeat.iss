@@ -6,6 +6,10 @@
 #ifndef AppVersion
   #define AppVersion "0.3.0"
 #endif
+; Windows file version must be numbers only (e.g. 0.3.0 for "0.3.0-test.1").
+#ifndef NumericVersion
+  #define NumericVersion "0.3.0"
+#endif
 #define Root ".."
 
 [Setup]
@@ -13,6 +17,7 @@ AppId={{6F1D2C1B-6B6E-4C55-9C1A-6D2B4E0B7A31}
 AppName=MultiSeat
 AppVersion={#AppVersion}
 AppVerName=MultiSeat {#AppVersion}
+VersionInfoVersion={#NumericVersion}
 AppPublisher=MultiSeat contributors
 AppPublisherURL=https://github.com/alfx509/Multi-set-hyper-v
 DefaultDirName={autopf}\MultiSeat
