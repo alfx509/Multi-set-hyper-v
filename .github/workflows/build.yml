@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Make a release with this tag, e.g. v0.3.0-test.1 (a dash = pre-release). Empty = just build.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -42,8 +47,11 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.3.$env:GITHUB_RUN_NUMBER" }
+          $tag = if ('${{ github.event.inputs.release }}') { '${{ github.event.inputs.release }}' } elseif ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME } else { '' }
+          if ($tag -and $tag -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Release tag must look like v1.2.3 or v1.2.3-test.1 (got '$tag')" }
+          $v = if ($tag) { $tag.TrimStart('v') } else { "0.3.$env:GITHUB_RUN_NUMBER" }
           "value=$v" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Build, test and make the installer
         shell: powershell
@@ -54,14 +62,16 @@ jobs:
           name: MultiSeat-Setup-${{ steps.version.outputs.value }}
           path: out/installer/MultiSeat-Setup.exe
 
-      - name: Publish release (tags v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish release (v* tag, or "release" input of a manual run)
+        if: steps.version.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
           files: out/installer/MultiSeat-Setup.exe
-          name: MultiSeat ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: MultiSeat ${{ steps.version.outputs.tag }}
           # Tags with a dash (v0.3.0-test.1) are marked "Pre-release" = for testing.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
           generate_release_notes: true
           body: |
             ## Install
@@ -73,7 +83,7 @@ jobs:
 
             Windows Server: several people play at the same time. Windows 10/11 Pro: installs and runs,
             but Windows normally allows only one signed-in person at a time.
-            Guide: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/guide.md
+            Guide: https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.tag }}/docs/guide.md
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
