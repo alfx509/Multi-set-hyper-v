@@ -210,7 +210,26 @@ IDD frame loop). Seat mode for tests: `HKLM\SOFTWARE\MultiSeat\RemoteIdd` `Width
 - Known issue: after seat sessions TermService can hang in StopPending; `Install-ProtocolProvider.ps1` renames the
   loaded DLL, then kills the service after 30 s (test VM only). Root cause still to find (stacks via `cdb` in the VM).
 
-Open: the session still ends after ~30 s (`PreDisconnect(12)`); licensing for a full sign-in; then route the
+**B4 licensing result (2026-11-20): MS-RDPELE client implemented – sign-in succeeds.**
+`drivers/MultiSeatProtocol/Licensing.cpp` answers as the RDP licensing client (from the open spec [MS-RDPELE] and the key
+derivation in [MS-RDPBCGR] 5.3.5, Windows CNG only):
+- capabilities `fAuthenticateServer = TRUE` → the licence request carries the server's proprietary certificate
+  (RSA 2048, exponent 65537); with FALSE the certificate is empty and nothing can be encrypted;
+- `SERVER_LICENSE_REQUEST` → `CLIENT_NEW_LICENSE_REQUEST` (premaster secret, raw RSA little-endian + 8 zero bytes);
+- `SERVER_PLATFORM_CHALLENGE` (arrives as a second `RequestClientLicense`) → **MAC matches** (our keys equal the
+  server's) → `CLIENT_PLATFORM_CHALLENGE_RESPONSE`;
+- server ends with `STATUS_VALID_CLIENT` (Per User mode issues no licence); `ProtocolComplete` still reports 241, but
+  the sign-in is no longer refused: **`LogonNotify(seat1)`**, profile created, logon type 10, session stays up.
+
+Next problem: **explorer crashes about once per second** in the seat session (winlogon restarts it via userinit, the
+screen stays dark). Dump (WER LocalDumps in the VM): unhandled `wil` exception in
+`Taskbar!PinDefaultInboxAuxiliaryTaskbarItems` → `abort()`. Also seen: AppX registration errors for the new user
+(`ContentDeliveryManager` 0x80073B0C "no default or neutral resource"; seat1 has 44 packages, Administrator 48),
+same on a second sign-in. Our seat sessions are **not listed by `qwinsta`/`logoff`** (WTS enumeration), and Windows
+allowed two seat sessions for the same user. Suspects: session properties the provider does not answer
+(`QueryProperty` 846B20BB…, 2918DB60…, 9EAA04F6… → `E_NOTIMPL`), session not visible to WTS, locale/language data.
+
+Open: route the
 seat's captured keyboard/mouse (MultiSeatInput) to an input agent in that session. Later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 

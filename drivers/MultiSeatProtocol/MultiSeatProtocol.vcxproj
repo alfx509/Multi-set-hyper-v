@@ -50,6 +50,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="MultiSeatProtocol.cpp" />
+    <ClCompile Include="Licensing.cpp" />
+    <ClInclude Include="Licensing.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="MultiSeatProtocol.def" />

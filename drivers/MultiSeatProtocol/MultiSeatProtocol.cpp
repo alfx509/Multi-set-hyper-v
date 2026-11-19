@@ -18,6 +18,7 @@
 #include <windows.h>
 #include <sddl.h>
 #include <wtsprotocol.h>
+#include "Licensing.h"
 #include <atomic>
 #include <cstdio>
 #include <cwchar>
@@ -40,7 +41,7 @@ static SRWLOCK g_logLock = SRWLOCK_INIT;
 
 // ------------------------------------------------------------------ logging
 
-static void Log(const wchar_t* format, ...)
+void Log(const wchar_t* format, ...)
 {
     wchar_t message[1024];
     va_list args;
@@ -132,7 +133,7 @@ private:
 };
 
 // Logs a binary blob as hex, 32 bytes per line (licensing PDUs for the MS-RDPELE work; no secrets in them).
-static void LogHex(const wchar_t* label, const BYTE* data, ULONG size)
+void LogHex(const wchar_t* label, const BYTE* data, ULONG size)
 {
     Log(L"%s: %lu bytes", label, size);
     for (ULONG offset = 0; data && offset < size; offset += 32) {
@@ -156,6 +157,7 @@ public:
     // B4 licensing experiments: HKLM\SOFTWARE\MultiSeat\Protocol\LicenseMode (DWORD)
     //   0 = report capabilities, no stored licence (default)   1 = RequestClientLicense -> E_NOTIMPL
     //   2 = RequestLicensingCapabilities -> E_NOTIMPL          3 = both E_NOTIMPL
+    //   +8 = capabilities say proprietary certificate. fAuthenticateServer is always TRUE (needed for MS-RDPELE).
     explicit LicenseConnection(ULONG seat) : _seat(seat)
     {
         DWORD size = sizeof(_mode);
@@ -193,8 +195,8 @@ public:
         ZeroMemory(caps, sizeof(*caps));
         caps->KeyExchangeAlg = WRDS_KEY_EXCHANGE_ALG_RSA;
         caps->ProtocolVer = WRDS_LICENSE_CURRENT_PROTOCOL_VERSION;
-        caps->fAuthenticateServer = FALSE;
-        caps->CertType = WRDS_CERT_TYPE_X509;
+        caps->fAuthenticateServer = TRUE;   // the licence request then carries the server certificate (RSA key)
+        caps->CertType = (_mode & 8) ? WRDS_CERT_TYPE_PROPRIETORY : WRDS_CERT_TYPE_X509;   // mode bit 8
         char name[16];
         int length = sprintf_s(name, "SEAT%lu", _seat);
         if (length > 0) {
@@ -209,10 +211,11 @@ public:
     {
         Log(L"License[%lu] SendClientLicense(%lu bytes)", _seat, bytes);
         LogHex(L"  server -> client licence PDU", data, bytes);
+        _client.Receive(data, bytes);
         return S_OK;
     }
 
-    STDMETHODIMP RequestClientLicense(PBYTE request, ULONG reserved, PBYTE, ULONG* bytes) override
+    STDMETHODIMP RequestClientLicense(PBYTE request, ULONG reserved, PBYTE response, ULONG* bytes) override
     {
         LogHex(L"  server licence request", request, reserved);
         if (_mode & 1) {
@@ -222,11 +225,25 @@ public:
             }
             return E_NOTIMPL;
         }
-        Log(L"License[%lu] RequestClientLicense(reserved %lu, buffer %lu) -> no stored licence", _seat, reserved,
-            bytes ? *bytes : 0);
-        if (bytes) {
-            *bytes = 0;
+        if (!bytes) {
+            return E_POINTER;
         }
+
+        // [MS-RDPELE] client side: answer the server PDU (licence request, platform challenge).
+        std::vector<BYTE> answer;
+        if (!_client.Respond(request, reserved, answer)) {
+            Log(L"License[%lu] RequestClientLicense(reserved %lu) -> no answer", _seat, reserved);
+            *bytes = 0;
+            return S_OK;
+        }
+        if (!response || *bytes < answer.size()) {
+            Log(L"License[%lu] RequestClientLicense: buffer %lu too small for %zu", _seat, *bytes, answer.size());
+            *bytes = static_cast<ULONG>(answer.size());
+            return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+        }
+        memcpy(response, answer.data(), answer.size());
+        *bytes = static_cast<ULONG>(answer.size());
+        LogHex(L"  client licence PDU", response, *bytes);
         return S_OK;
     }
 
@@ -239,6 +256,7 @@ public:
 private:
     ULONG _seat;
     DWORD _mode = 0;
+    LicensingClient _client{ _seat };
 };
 
 // ------------------------------------------------------------------ shadow connection (stub)
