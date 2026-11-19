@@ -96,9 +96,9 @@ static const struct IndirectSampleMonitor s_SampleMonitors[] =
             0x9B,0xFA,0xFA,0x40,0x01,0x0A,0x20,0x20,0x20,0x20,0x20,0x20,0x00,0x2C
         },
         {
-            { 2560, 1440, 144 },
-            { 1920, 1080,  60 },
-            { 1024,  768,  60 },
+            { 2560, 1440, 144 },   // MultiSeat: all 144 Hz so B3 can compare resolutions
+            { 1920, 1080, 144 },
+            { 1280,  720, 144 },
         },
         0
     },
@@ -673,7 +673,12 @@ void IndirectDeviceContext::FinishInit(UINT ConnectorIndex)
             Path.Size = sizeof(Path);
             Path.MonitorObject = MonitorCreateOut.MonitorObject;
             Path.Position = { 0, 0 };
-            Path.Resolution = { 2560, 1440 };
+            // Seat mode from HKLM\SOFTWARE\MultiSeat\RemoteIdd (Width, Height DWORDs; 144 Hz). Default 2560x1440.
+            DWORD Width = 2560, Height = 1440, Size = sizeof(DWORD);
+            RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MultiSeat\\RemoteIdd", L"Width", RRF_RT_REG_DWORD, nullptr, &Width, &Size);
+            Size = sizeof(DWORD);
+            RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MultiSeat\\RemoteIdd", L"Height", RRF_RT_REG_DWORD, nullptr, &Height, &Size);
+            Path.Resolution = { Width, Height };
             Path.Rotation = DISPLAYCONFIG_ROTATION_IDENTITY;
             Path.RefreshRate = { 144, 1 };
             Path.VSyncFreqDivider = 1;
@@ -683,7 +688,7 @@ void IndirectDeviceContext::FinishInit(UINT ConnectorIndex)
             Update.PathCount = 1;
             Update.pPaths = &Path;
             Status = IddCxAdapterDisplayConfigUpdate(m_Adapter, &Update);
-            IddLog(L"IddCxAdapterDisplayConfigUpdate(2560x1440 @ 144) = 0x%08X", static_cast<unsigned>(Status));
+            IddLog(L"IddCxAdapterDisplayConfigUpdate(%lux%lu @ 144) = 0x%08X", Width, Height, static_cast<unsigned>(Status));
         }
     }
     else
@@ -883,6 +888,7 @@ NTSTATUS IddSampleMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
     TargetModes.push_back(CreateIddCxTargetMode(1920, 1080, 90));
     TargetModes.push_back(CreateIddCxTargetMode(1920, 1080, 60));
     TargetModes.push_back(CreateIddCxTargetMode(1600,  900, 60));
+    TargetModes.push_back(CreateIddCxTargetMode(1280,  720, 144));   // MultiSeat B3
     TargetModes.push_back(CreateIddCxTargetMode(1024,  768, 75));
     TargetModes.push_back(CreateIddCxTargetMode(1024,  768, 60));
 

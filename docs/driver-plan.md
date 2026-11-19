@@ -158,6 +158,21 @@ Observed: `IddCxAdapterInitAsync(remote) = 0` → monitor arrival → config upd
 then `PreDisconnect(12)` (probably the sign-in screen timing out with no input – B4).
 Next (B3): make something move inside the seat session and read the fps in `idd.log`.
 
+**B3 result (2026-11-19, test VM, no GPU – software rendering): NO RDP-style cap; 105–125 fps.**
+`tools/SeatSpinner` (full-screen D3D11, new colour every frame, `Present(1,0)`) started inside the seat session as
+SYSTEM on its sign-in desktop (`setup/dev/Measure-SeatFps.ps1`). Frames = what our remote IDD received from DWM.
+
+| Seat mode | Spinner presents/s | Frames delivered to the seat monitor | VM CPU (4 vCPU) |
+|---|---|---|---|
+| 2560x1440 @ 144 | ~107 | **~105 fps** | – |
+| 1280x720 @ 144 | ~126 | **~124 fps** | 5–9 % |
+| (reference) VMConnect enhanced session = RDP | – | 32 | – |
+
+Reading: far above RDP's 30/60 cap, and the rate depends on resolution (a fixed cap would not). The CPU is mostly idle,
+so the gap to 144 is not CPU power; likely per-frame pacing delay in the VM's software display path and/or the sample's
+simple swap-chain loop (16 ms wait timeout). **Final answer needs the test PC with a real GPU** (then also tune the
+IDD frame loop). Seat mode for tests: `HKLM\SOFTWARE\MultiSeat\RemoteIdd` `Width`/`Height` (DWORD, 144 Hz).
+
 Questions to answer with measurements before writing the display driver:
 
 1. **What does a player session get today?** Run `tools/SeatProbe` in the console session and in a
