@@ -71,6 +71,35 @@ static void Log(const wchar_t* format, ...)
     ReleaseSRWLockExclusive(&g_logLock);
 }
 
+// Copies text into a fixed WTS field and cuts it if it is too long (wcscpy_s would end the process).
+template <size_t N>
+static void CopyText(wchar_t (&dst)[N], const wchar_t* src)
+{
+    wcsncpy_s(dst, N, src ? src : L"", _TRUNCATE);
+}
+
+// Who may use the listener: SYSTEM and Administrators everything, signed-in users log on and connect.
+// An empty descriptor makes OnConnected fail with ERROR_UNKNOWN_REVISION (found in B1).
+// Returned in CoTaskMemAlloc memory (the caller frees it).
+static bool MakeListenerSecurity(PBYTE* descriptor, ULONG* size)
+{
+    *descriptor = nullptr;
+    *size = 0;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    ULONG length = 0;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"O:SYG:SYD:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;AU)(A;;GA;;;IU)", SDDL_REVISION_1, &sd, &length)) {
+        return false;
+    }
+    *descriptor = static_cast<PBYTE>(CoTaskMemAlloc(length));
+    if (*descriptor) {
+        memcpy(*descriptor, sd, length);
+        *size = length;
+    }
+    LocalFree(sd);
+    return *descriptor != nullptr;
+}
+
 static void GuidText(REFGUID g, wchar_t (&out)[40])
 {
     if (StringFromGUID2(g, out, 40) == 0) {
@@ -100,6 +129,81 @@ protected:
 
 private:
     std::atomic<long> _refs{ 1 };
+};
+
+// ------------------------------------------------------------------ licensing handshake (one per connection)
+//
+// Without it the service closes the connection (B1: GetLicenseConnection E_NOTIMPL -> SetErrorInfo(0x106)).
+// A local seat has no client licence store: we report basic capabilities and accept what the service
+// issues. RD Session Host licensing itself (grace period / RDS CALs) is handled by Windows.
+
+class LicenseConnection final : public IWRdsProtocolLicenseConnection, public RefCounted<LicenseConnection>
+{
+public:
+    explicit LicenseConnection(ULONG seat) : _seat(seat) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (!ppv) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == __uuidof(IWRdsProtocolLicenseConnection)) {
+            *ppv = static_cast<IWRdsProtocolLicenseConnection*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    STDMETHODIMP_(ULONG) AddRef() override { return AddRefImpl(); }
+    STDMETHODIMP_(ULONG) Release() override { return ReleaseImpl(); }
+
+    STDMETHODIMP RequestLicensingCapabilities(PWRDS_LICENSE_CAPABILITIES caps, ULONG* size) override
+    {
+        Log(L"License[%lu] RequestLicensingCapabilities(size %lu)", _seat, size ? *size : 0);
+        if (!caps || !size || *size < sizeof(WRDS_LICENSE_CAPABILITIES)) {
+            return E_INVALIDARG;
+        }
+        ZeroMemory(caps, sizeof(*caps));
+        caps->KeyExchangeAlg = WRDS_KEY_EXCHANGE_ALG_RSA;
+        caps->ProtocolVer = WRDS_LICENSE_CURRENT_PROTOCOL_VERSION;
+        caps->fAuthenticateServer = FALSE;
+        caps->CertType = WRDS_CERT_TYPE_X509;
+        char name[16];
+        int length = sprintf_s(name, "SEAT%lu", _seat);
+        if (length > 0) {
+            memcpy(caps->rgbClientName, name, static_cast<size_t>(length) + 1);
+            caps->cbClientName = static_cast<DWORD>(length) + 1;
+        }
+        *size = sizeof(WRDS_LICENSE_CAPABILITIES);
+        return S_OK;
+    }
+
+    STDMETHODIMP SendClientLicense(PBYTE, ULONG bytes) override
+    {
+        Log(L"License[%lu] SendClientLicense(%lu bytes)", _seat, bytes);
+        return S_OK;
+    }
+
+    STDMETHODIMP RequestClientLicense(PBYTE, ULONG reserved, PBYTE, ULONG* bytes) override
+    {
+        Log(L"License[%lu] RequestClientLicense(reserved %lu, buffer %lu) -> no stored licence", _seat, reserved,
+            bytes ? *bytes : 0);
+        if (bytes) {
+            *bytes = 0;
+        }
+        return S_OK;
+    }
+
+    STDMETHODIMP ProtocolComplete(ULONG complete) override
+    {
+        Log(L"License[%lu] ProtocolComplete(%lu) %s", _seat, complete, complete == 1 ? L"= success" : L"= FAILED");
+        return S_OK;
+    }
+
+private:
+    ULONG _seat;
 };
 
 // ------------------------------------------------------------------ connection (one per seat)
@@ -154,12 +258,23 @@ public:
     // IWRdsProtocolConnection
     STDMETHODIMP GetLogonErrorRedirector(IWRdsProtocolLogonErrorRedirector** redirector) override
     {
-        Log(L"Connection[%lu] GetLogonErrorRedirector -> none; calling OnReady on our own thread", _seat);
+        Log(L"Connection[%lu] GetLogonErrorRedirector -> none", _seat);
         if (redirector) {
             *redirector = nullptr;
         }
 
-        // The service waits for OnReady before AcceptConnection; it must not be called from this callback.
+        SignalReady(L"after GetLogonErrorRedirector");
+        return S_OK;
+    }
+
+    // The service waits for OnReady before AcceptConnection. Never call it from inside a service callback:
+    // it runs on our own thread, and only once per connection.
+    void SignalReady(const wchar_t* why)
+    {
+        if (_readySent.exchange(true)) {
+            return;
+        }
+        Log(L"Connection[%lu] calling OnReady (%s)", _seat, why);
         AddRef();
         HANDLE thread = CreateThread(nullptr, 0, [](void* p) -> DWORD {
             auto* self = static_cast<Connection*>(p);
@@ -173,8 +288,6 @@ public:
         } else {
             Release();
         }
-
-        return S_OK;
     }
 
     STDMETHODIMP AcceptConnection() override
@@ -204,7 +317,7 @@ public:
         data->KeyboardFunctionKey = 12;
         data->ActiveInputLocale = 0x0409;
         data->fNoAudioPlayback = TRUE;
-        wcscpy_s(data->ProtocolName, L"MultiSeat");
+        CopyText(data->ProtocolName, L"MSLocal");   // max 8 chars (WTS_PROTOCOL_NAME_LENGTH)
         swprintf_s(data->ClientName, L"SEAT%lu", _seat);
         data->ClientBuildNumber = 26100;
         data->fDisableCpm = data->fDisableCdm = data->fDisableCcm = data->fDisableLPT = data->fDisableClip = TRUE;
@@ -234,11 +347,12 @@ public:
 
     STDMETHODIMP GetLicenseConnection(IWRdsProtocolLicenseConnection** license) override
     {
-        Log(L"Connection[%lu] GetLicenseConnection -> E_NOTIMPL", _seat);
-        if (license) {
-            *license = nullptr;
+        if (!license) {
+            return E_POINTER;
         }
-        return E_NOTIMPL;
+        *license = new (std::nothrow) LicenseConnection(_seat);   // one reference, owned by the caller
+        Log(L"Connection[%lu] GetLicenseConnection -> %s", _seat, *license ? L"ok" : L"out of memory");
+        return *license ? S_OK : E_OUTOFMEMORY;
     }
 
     STDMETHODIMP AuthenticateClientToSession(WRDS_SESSION_ID* sessionId) override
@@ -393,7 +507,11 @@ public:
         if (!hardwareId || count == 0) {
             return E_POINTER;
         }
-        return wcscpy_s(hardwareId, count, kIddHardwareId) == 0 ? S_OK : E_NOT_SUFFICIENT_BUFFER;
+        if (wcslen(kIddHardwareId) >= count) {
+            return E_NOT_SUFFICIENT_BUFFER;
+        }
+        wcsncpy_s(hardwareId, count, kIddHardwareId, _TRUNCATE);
+        return S_OK;
     }
 
     STDMETHODIMP OnDriverLoad(ULONG sessionId, HANDLE_PTR driverHandle) override
@@ -421,6 +539,7 @@ public:
 private:
     ULONG _seat;
     ULONG _sessionId = 0;
+    std::atomic<bool> _readySent{ false };
     IWRdsProtocolConnectionCallback* _callback = nullptr;
 };
 
@@ -431,7 +550,7 @@ class Listener final : public IWRdsProtocolListener, public RefCounted<Listener>
 public:
     explicit Listener(const wchar_t* name)
     {
-        wcscpy_s(_name, name ? name : L"");
+        CopyText(_name, name);
         Log(L"Listener created (%s)", _name);
     }
 
@@ -466,7 +585,11 @@ public:
         }
         ZeroMemory(settings, sizeof(*settings));
         settings->WRdsListenerSettingLevel = WRDS_LISTENER_SETTING_LEVEL_1;
-        settings->WRdsListenerSetting.WRdsListenerSettings1.MaxProtocolListenerConnectionCount = 8;
+        auto& l = settings->WRdsListenerSetting.WRdsListenerSettings1;
+        l.MaxProtocolListenerConnectionCount = 8;
+        if (!MakeListenerSecurity(&l.pSecurityDescriptor, &l.SecurityDescriptorSize)) {
+            Log(L"Listener GetSettings: security descriptor failed (%lu)", GetLastError());
+        }
         return S_OK;
     }
 
@@ -561,6 +684,10 @@ private:
         s.fEnableWindowsKey = TRUE;
         s.fDisableCpm = s.fDisableCdm = s.fDisableCcm = s.fDisableLPT = s.fDisableClip = TRUE;
         s.fNoAudioPlayback = TRUE;
+        s.WRdsListenerSettings.WRdsListenerSettingLevel = WRDS_LISTENER_SETTING_LEVEL_1;
+        auto& ls = s.WRdsListenerSettings.WRdsListenerSetting.WRdsListenerSettings1;
+        ls.MaxProtocolListenerConnectionCount = 8;
+        MakeListenerSecurity(&ls.pSecurityDescriptor, &ls.SecurityDescriptorSize);
         s.ColorDepth = 32;
         s.HRes = 1920;
         s.VRes = 1080;
@@ -569,9 +696,9 @@ private:
         s.KeyboardType = 4;
         s.KeyboardFunctionKey = 12;
         s.ClientBuildNumber = 26100;
-        wcscpy_s(s.ProtocolName, L"MultiSeat");
+        CopyText(s.ProtocolName, L"MSLocal");        // max 8 chars (WTS_PROTOCOL_NAME_LENGTH)
         swprintf_s(s.ClientName, L"SEAT%lu", seat);
-        wcscpy_s(s.ClientAddress, L"127.0.0.1");
+        CopyText(s.ClientAddress, L"127.0.0.1");
 
         IWRdsProtocolConnectionCallback* callback = nullptr;
         HRESULT hr = _callback->OnConnected(connection, settings, &callback);
@@ -579,9 +706,11 @@ private:
             static_cast<void*>(callback));
         if (SUCCEEDED(hr) && callback) {
             connection->SetCallback(callback);
+            connection->SignalReady(L"right after OnConnected");
             callback->Release();
         }
 
+        CoTaskMemFree(ls.pSecurityDescriptor);
         HeapFree(GetProcessHeap(), 0, settings);
         connection->Release(); // the service holds its own reference if it accepted the connection
     }

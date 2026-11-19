@@ -126,6 +126,24 @@ Small experiments, each one answers one question:
 Safety: TermService loads the DLL – a crash stops Remote Desktop in the VM only. Checkpoint before each
 experiment. Uninstall = delete the listener key + `regsvr32 /u` + restart TermService.
 
+**B1 result (2026-11-19): PASS – Windows creates a real session for our provider.**
+What it took (all in `setup/dev/Install-ProtocolProvider.ps1`):
+1. **RD Session Host role** (`RDS-RD-Server`) – without it TermService silently ignores non-Microsoft
+   listeners (no event, DLL never loaded). Remote Desktop must be on (`fDenyTSConnections = 0`).
+2. A protocol definition `Terminal Server\Wds\multiseat` (copy of `rdpwd`, our CLSID) and a listener
+   `WinStations\MultiSeat-Local` (copy of `RDP-Tcp`) whose `WdName` points to it. TermService watches these keys live.
+3. A valid listener **security descriptor** (empty one → `OnConnected` = `ERROR_UNKNOWN_REVISION`).
+4. Call **`OnReady` right after `OnConnected`** (the service never calls `GetLogonErrorRedirector` first).
+5. An `IWRdsProtocolLicenseConnection` (without it: `SetErrorInfo(0x106)` + `Close`). `ProtocolComplete(241)` is
+   reported, but the service continues (RDSH grace period).
+6. WTS string fields are short (`ProtocolName` max 8 chars) – `wcscpy_s` overflow killed TermService once.
+
+Observed order: `QueryInterface(IWRdsWddmIddProps)` → `EnableWddmIdd(1)` → `OnConnected` returns → `OnReady` →
+`AcceptConnection` → `GetClientData` → `GetClientMonitorData` → `GetLicenseConnection` (licensing) →
+`AuthenticateClientToSession` → **new session 2** → `NotifySessionId` → `GetInputHandles` →
+**`GetHardwareId`** (Windows asks which remote IDD to load) → LSM: "connect message to video subsystem failed
+0xD0000001" → session disconnected (expected: no driver with that hardware id yet → B2).
+
 Questions to answer with measurements before writing the display driver:
 
 1. **What does a player session get today?** Run `tools/SeatProbe` in the console session and in a
