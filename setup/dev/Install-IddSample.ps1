@@ -28,8 +28,11 @@ if ($Uninstall) {
 }
 
 $cer = Join-Path $dir 'IddSampleDriver.cer'
-Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
-Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+# certutil: Import-Certificate can fail with "Access is denied" on LocalMachine\Root even when elevated.
+foreach ($store in 'Root', 'TrustedPublisher') {
+    certutil -addstore -f $store $cer | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "certutil -addstore $store failed ($LASTEXITCODE). Is this PowerShell 'Run as administrator'?" }
+}
 Write-Host '  Trusted the WDK test certificate (test VM only).'
 
 pnputil /add-driver (Join-Path $dir 'IddSampleDriver.inf') /install
