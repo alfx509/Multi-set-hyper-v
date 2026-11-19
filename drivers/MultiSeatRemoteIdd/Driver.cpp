@@ -36,7 +36,7 @@ static SRWLOCK g_LogLock = SRWLOCK_INIT;
 static const wchar_t* const kSnapRequest = L"C:\\ProgramData\\MultiSeat\\snap.request";
 static const wchar_t* const kSnapFile = L"C:\\ProgramData\\MultiSeat\\seat.bmp";
 
-static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, IDXGIResource* Surface);
+static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, ID3D11Texture2D* Frame);
 
 static void IddLog(const wchar_t* Format, ...)
 {
@@ -442,6 +442,12 @@ void SwapChainProcessor::RunCore()
 
     // MultiSeat B3: count the frames DWM delivers to this seat's monitor and log frames per second.
     ULONGLONG WindowStart = GetTickCount64();
+
+    // Snapshots (tests only): keep a copy of the last frame so a still screen can be saved too.
+    DWORD Snapshots = 0, SnapSize = sizeof(DWORD);
+    RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MultiSeat\\RemoteIdd", L"Snapshots", RRF_RT_REG_DWORD, nullptr, &Snapshots, &SnapSize);
+    ComPtr<ID3D11Texture2D> LastFrame;
+    IddLog(L"Swap-chain started (snapshots %s)", Snapshots ? L"on" : L"off");
     UINT FramesInWindow = 0;
 
     // Acquire and release buffers in a loop
@@ -465,6 +471,13 @@ void SwapChainProcessor::RunCore()
         // AcquireBuffer immediately returns STATUS_PENDING if no buffer is yet available
         if (hr == E_PENDING)
         {
+            // A snapshot of a still screen comes from the kept last frame.
+            if (Snapshots && LastFrame && GetFileAttributesW(kSnapRequest) != INVALID_FILE_ATTRIBUTES)
+            {
+                DeleteFileW(kSnapRequest);
+                SaveSnapshot(m_Device->Device.Get(), m_Device->DeviceContext.Get(), LastFrame.Get());
+            }
+
             // We must wait for a new buffer
             HANDLE WaitHandles [] =
             {
@@ -495,10 +508,34 @@ void SwapChainProcessor::RunCore()
             AcquiredBuffer.Attach(Buffer.MetaData.pSurface);
             FramesInWindow++;
 
-            if (GetFileAttributesW(kSnapRequest) != INVALID_FILE_ATTRIBUTES)
+            if (Snapshots)
             {
-                DeleteFileW(kSnapRequest);
-                SaveSnapshot(m_Device->Device.Get(), m_Device->DeviceContext.Get(), AcquiredBuffer.Get());
+                ComPtr<ID3D11Texture2D> Frame;
+                if (SUCCEEDED(AcquiredBuffer.As(&Frame)))
+                {
+                    D3D11_TEXTURE2D_DESC Desc;
+                    Frame->GetDesc(&Desc);
+                    D3D11_TEXTURE2D_DESC LastDesc = {};
+                    if (LastFrame)
+                    {
+                        LastFrame->GetDesc(&LastDesc);
+                    }
+                    if (!LastFrame || LastDesc.Width != Desc.Width || LastDesc.Height != Desc.Height || LastDesc.Format != Desc.Format)
+                    {
+                        LastFrame.Reset();
+                        Desc.Usage = D3D11_USAGE_DEFAULT;
+                        Desc.BindFlags = 0;
+                        Desc.CPUAccessFlags = 0;
+                        Desc.MiscFlags = 0;
+                        Desc.MipLevels = 1;
+                        Desc.ArraySize = 1;
+                        m_Device->Device->CreateTexture2D(&Desc, nullptr, &LastFrame);
+                    }
+                    if (LastFrame)
+                    {
+                        m_Device->DeviceContext->CopyResource(LastFrame.Get(), Frame.Get());
+                    }
+                }
             }
 
             // ==============================
@@ -546,12 +583,11 @@ void SwapChainProcessor::RunCore()
 }
 
 // Copies the frame to a CPU-readable texture and writes a 32-bit top-down BMP.
-static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, IDXGIResource* Surface)
+static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, ID3D11Texture2D* Frame)
 {
-    ComPtr<ID3D11Texture2D> Frame;
-    if (!Surface || FAILED(Surface->QueryInterface(IID_PPV_ARGS(&Frame))))
+    if (!Frame)
     {
-        IddLog(L"Snapshot: surface is not a texture");
+        IddLog(L"Snapshot: no frame yet");
         return;
     }
 
@@ -569,7 +605,7 @@ static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, IDX
         IddLog(L"Snapshot: CreateTexture2D failed (format %u)", static_cast<unsigned>(Desc.Format));
         return;
     }
-    Context->CopyResource(Staging.Get(), Frame.Get());
+    Context->CopyResource(Staging.Get(), Frame);
 
     D3D11_MAPPED_SUBRESOURCE Mapped;
     if (FAILED(Context->Map(Staging.Get(), 0, D3D11_MAP_READ, 0, &Mapped)))

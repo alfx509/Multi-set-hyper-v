@@ -131,6 +131,19 @@ private:
     std::atomic<long> _refs{ 1 };
 };
 
+// Logs a binary blob as hex, 32 bytes per line (licensing PDUs for the MS-RDPELE work; no secrets in them).
+static void LogHex(const wchar_t* label, const BYTE* data, ULONG size)
+{
+    Log(L"%s: %lu bytes", label, size);
+    for (ULONG offset = 0; data && offset < size; offset += 32) {
+        wchar_t line[3 * 32 + 1] = {};
+        for (ULONG i = 0; i < 32 && offset + i < size; i++) {
+            swprintf_s(line + i * 3, 4, L"%02X ", data[offset + i]);
+        }
+        Log(L"  %04lX  %s", offset, line);
+    }
+}
+
 // ------------------------------------------------------------------ licensing handshake (one per connection)
 //
 // Without it the service closes the connection (B1: GetLicenseConnection E_NOTIMPL -> SetErrorInfo(0x106)).
@@ -140,7 +153,15 @@ private:
 class LicenseConnection final : public IWRdsProtocolLicenseConnection, public RefCounted<LicenseConnection>
 {
 public:
-    explicit LicenseConnection(ULONG seat) : _seat(seat) {}
+    // B4 licensing experiments: HKLM\SOFTWARE\MultiSeat\Protocol\LicenseMode (DWORD)
+    //   0 = report capabilities, no stored licence (default)   1 = RequestClientLicense -> E_NOTIMPL
+    //   2 = RequestLicensingCapabilities -> E_NOTIMPL          3 = both E_NOTIMPL
+    explicit LicenseConnection(ULONG seat) : _seat(seat)
+    {
+        DWORD size = sizeof(_mode);
+        RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MultiSeat\\Protocol", L"LicenseMode", RRF_RT_REG_DWORD, nullptr, &_mode, &size);
+        Log(L"License[%lu] mode %lu", _seat, _mode);
+    }
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
     {
@@ -162,6 +183,10 @@ public:
     STDMETHODIMP RequestLicensingCapabilities(PWRDS_LICENSE_CAPABILITIES caps, ULONG* size) override
     {
         Log(L"License[%lu] RequestLicensingCapabilities(size %lu)", _seat, size ? *size : 0);
+        if (_mode & 2) {
+            Log(L"License[%lu]   -> E_NOTIMPL (mode)", _seat);
+            return E_NOTIMPL;
+        }
         if (!caps || !size || *size < sizeof(WRDS_LICENSE_CAPABILITIES)) {
             return E_INVALIDARG;
         }
@@ -180,14 +205,23 @@ public:
         return S_OK;
     }
 
-    STDMETHODIMP SendClientLicense(PBYTE, ULONG bytes) override
+    STDMETHODIMP SendClientLicense(PBYTE data, ULONG bytes) override
     {
         Log(L"License[%lu] SendClientLicense(%lu bytes)", _seat, bytes);
+        LogHex(L"  server -> client licence PDU", data, bytes);
         return S_OK;
     }
 
-    STDMETHODIMP RequestClientLicense(PBYTE, ULONG reserved, PBYTE, ULONG* bytes) override
+    STDMETHODIMP RequestClientLicense(PBYTE request, ULONG reserved, PBYTE, ULONG* bytes) override
     {
+        LogHex(L"  server licence request", request, reserved);
+        if (_mode & 1) {
+            Log(L"License[%lu] RequestClientLicense -> E_NOTIMPL (mode)", _seat);
+            if (bytes) {
+                *bytes = 0;
+            }
+            return E_NOTIMPL;
+        }
         Log(L"License[%lu] RequestClientLicense(reserved %lu, buffer %lu) -> no stored licence", _seat, reserved,
             bytes ? *bytes : 0);
         if (bytes) {
@@ -204,6 +238,7 @@ public:
 
 private:
     ULONG _seat;
+    DWORD _mode = 0;
 };
 
 // ------------------------------------------------------------------ shadow connection (stub)

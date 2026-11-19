@@ -33,7 +33,15 @@ $logDir = 'C:\ProgramData\MultiSeat'
 function Stop-RemoteDesktop {
     Write-Host '  Stopping Remote Desktop Services...'
     Stop-Service UmRdpService -Force -ErrorAction SilentlyContinue
-    Stop-Service TermService -Force
+    Stop-Service TermService -Force -NoWait -ErrorAction SilentlyContinue
+    # Known issue (B4): after seat sessions, TermService can hang in StopPending. Test VM: kill it after 30 s.
+    for ($i = 0; $i -lt 30 -and (Get-Service TermService).Status -ne 'Stopped'; $i++) { Start-Sleep -Seconds 1 }
+    if ((Get-Service TermService).Status -ne 'Stopped') {
+        $p = (Get-CimInstance Win32_Service -Filter "Name='TermService'").ProcessId
+        Write-Warning "TermService did not stop; killing process $p (test VM only)."
+        if ($p) { Stop-Process -Id $p -Force }
+        for ($i = 0; $i -lt 15 -and (Get-Service TermService).Status -ne 'Stopped'; $i++) { Start-Sleep -Seconds 1 }
+    }
 }
 
 function Start-RemoteDesktop {
@@ -70,8 +78,12 @@ if ((Get-ItemProperty $ts).fDenyTSConnections -ne 0) {
 New-Item -ItemType Directory -Force -Path $installDir, $logDir | Out-Null
 icacls $logDir /grant '*S-1-5-20:(OI)(CI)M' | Out-Null      # NETWORK SERVICE (TermService) may write the log
 
-Stop-RemoteDesktop
+# A loaded DLL cannot be overwritten but can be renamed: move the old one aside, then copy the new one.
+# (Stopping TermService first is not enough - the service recovery restarts it at once.)
+Get-ChildItem $installDir -Filter 'MultiSeatProtocol.dll.old-*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+if (Test-Path $dll) { Rename-Item $dll ("MultiSeatProtocol.dll.old-{0}" -f (Get-Date).Ticks) }
 Copy-Item -Force $source $dll
+Stop-RemoteDesktop
 & regsvr32.exe /s $dll
 if ($LASTEXITCODE -ne 0) { throw "regsvr32 failed ($LASTEXITCODE)" }
 

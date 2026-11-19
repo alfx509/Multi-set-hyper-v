@@ -199,6 +199,102 @@ static int InputTest(const wchar_t* text)
     return 0;
 }
 
+// Sign-in test (B4): reads "user\npassword" from a file only Administrators/SYSTEM can read, types them into the
+// seat's sign-in screen (user name box has focus), Tab between them, Enter at the end. Never logs the text.
+static UINT TypeText(const wchar_t* text)
+{
+    UINT accepted = 0;
+    for (const wchar_t* c = text; *c; c++) {
+        INPUT key[2] = {};
+        key[0].type = key[1].type = INPUT_KEYBOARD;
+        key[0].ki.wScan = key[1].ki.wScan = *c;
+        key[0].ki.dwFlags = KEYEVENTF_UNICODE;
+        key[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        accepted += SendInput(2, key, sizeof(INPUT));
+        Sleep(80);
+    }
+    return accepted;
+}
+
+static UINT PressKey(WORD vk)
+{
+    INPUT key[2] = {};
+    key[0].type = key[1].type = INPUT_KEYBOARD;
+    key[0].ki.wVk = key[1].ki.wVk = vk;
+    key[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    return SendInput(2, key, sizeof(INPUT));
+}
+
+static int SignInTest(const wchar_t* path)
+{
+    char buffer[512] = {};
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    DWORD read = 0;
+    if (file == INVALID_HANDLE_VALUE || !ReadFile(file, buffer, sizeof(buffer) - 1, &read, nullptr)) {
+        Log(L"signin: cannot read the credential file (%lu)", GetLastError());
+        if (file != INVALID_HANDLE_VALUE) {
+            CloseHandle(file);
+        }
+        return 1;
+    }
+    CloseHandle(file);
+
+    wchar_t text[512] = {};
+    MultiByteToWideChar(CP_ACP, 0, buffer, -1, text, 512);
+    SecureZeroMemory(buffer, sizeof(buffer));
+    wchar_t* context = nullptr;
+    wchar_t* user = wcstok_s(text, L"\r\n", &context);
+    wchar_t* password = wcstok_s(nullptr, L"\r\n", &context);
+    if (!user || !password) {
+        Log(L"signin: the file needs two lines (user, password)");
+        return 1;
+    }
+
+    HDESK desktop = OpenInputDesktop(0, FALSE, GENERIC_ALL);
+    if (!desktop || !SetThreadDesktop(desktop)) {
+        Log(L"signin: cannot attach to the input desktop (%lu)", GetLastError());
+        return 1;
+    }
+
+    // B4: typing right after Tab lost characters (logon failed with 0xC000006A, wrong password), so give the
+    // sign-in screen time to move the focus.
+    UINT u = TypeText(user);
+    Sleep(400);
+    UINT tab = PressKey(VK_TAB);
+    Sleep(800);
+    UINT p = TypeText(password);
+    Sleep(400);
+    UINT enter = PressKey(VK_RETURN);
+    Log(L"signin: user %zu chars (%u events), tab %u, password %zu chars (%u events), enter %u", wcslen(user), u, tab,
+        wcslen(password), p, enter);
+    SecureZeroMemory(text, sizeof(text));
+    return 0;
+}
+
+// Moves the mouse 1 pixel and back on the session's current input desktop. A still screen sends no frames;
+// this forces one, so a snapshot can be taken without changing what is shown.
+static int Nudge()
+{
+    HDESK desktop = OpenInputDesktop(0, FALSE, GENERIC_ALL);
+    if (!desktop || !SetThreadDesktop(desktop)) {
+        Log(L"nudge: cannot attach to the input desktop (%lu)", GetLastError());
+        return 1;
+    }
+    wchar_t name[128] = {};
+    DWORD needed = 0;
+    GetUserObjectInformationW(desktop, UOI_NAME, name, sizeof(name), &needed);
+    for (int i = 0; i < 6; i++) {
+        INPUT move = {};
+        move.type = INPUT_MOUSE;
+        move.mi.dx = (i % 2) ? -1 : 1;
+        move.mi.dwFlags = MOUSEEVENTF_MOVE;
+        SendInput(1, &move, sizeof(INPUT));
+        Sleep(150);
+    }
+    Log(L"nudge: mouse moved on desktop %s", name);
+    return 0;
+}
+
 // ------------------------------------------------------------------ launch into another session (needs SYSTEM)
 
 static int Launch(DWORD session, const wchar_t* childArgs)
@@ -251,6 +347,12 @@ int wmain(int argc, wchar_t** argv)
     }
     if (argc >= 3 && _wcsicmp(argv[1], L"input") == 0) {
         return InputTest(argv[2]);
+    }
+    if (argc >= 3 && _wcsicmp(argv[1], L"signin") == 0) {
+        return SignInTest(argv[2]);
+    }
+    if (argc >= 2 && _wcsicmp(argv[1], L"nudge") == 0) {
+        return Nudge();
     }
     if (argc >= 3 && _wcsicmp(argv[1], L"launch") == 0) {
         // launch <session> [seconds]            -> spin

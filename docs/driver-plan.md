@@ -184,7 +184,33 @@ IDD frame loop). Seat mode for tests: `HKLM\SOFTWARE\MultiSeat\RemoteIdd` `Width
 
 ![Seat sign-in screen from the remote IDD, with injected text](images/b4-seat-signin-typing.png)
 
-Open: the session still ends after ~30 s (`PreDisconnect(12)`); a full sign-in with a test user; then route the
+**B4 sign-in result (2026-11-19): input and password check work; blocked at RD licensing.**
+- Test user `seat1` (Remote Desktop Users; password only in the VM, `C:\ProgramData\MultiSeat\testuser-seat1.txt`,
+  Administrators/SYSTEM only). `SeatSpinner signin <file>` types it on the seat's sign-in screen
+  (`setup/dev/Test-SeatSignIn.ps1`). Typing right after Tab lost characters → wait 0.8 s after Tab.
+- Windows checks the password successfully (Security 4624, logon type **10 = RemoteInteractive**); the provider gets
+  `IsUserAllowedToLogon(seat1)` and `SessionArbitrationEnumeration`, then the seat shows
+  "The number of connections to this computer is limited…" = `ERROR_CTX_LICENSE_NOT_AVAILABLE`:
+
+![Seat after sign-in: licence not available](images/b4-seat-licence-error.png)
+
+- Licensing PDUs (MS-RDPELE), logged as hex by the provider:
+  server → us `LICENSE_REQUEST` (134 bytes: server random, product "Microsoft Corporation"/"A02", RSA key exchange,
+  **empty server certificate**, scope "microsoft.com"); we return no client licence; server → us `ERROR_ALERT`
+  `STATUS_VALID_CLIENT` / `ST_NO_TRANSITION` (16 bytes); then `ProtocolComplete(241)` (≠ 1 = failure) and the logon is
+  refused. Same with licensing mode 5 (not configured) and 4 (Per User), grace period 120 days.
+- Returning `E_NOTIMPL` from `RequestLicensingCapabilities` and/or `RequestClientLicense` → connection closed at once.
+- Microsoft's RDP provider does a different sequence (RdpCoreTS log): `OnStartLicensing` → `SendClientLicense` →
+  `ProtocolComplete` – `OnStartLicensing` is not in the public `IWRdsProtocolLicenseConnection`.
+- Next options: implement the MS-RDPELE client side (Client New License Request / Platform Challenge Response; open
+  spec; FreeRDP has a client implementation) – open question: which server key to use with an empty certificate;
+  or find which licence state makes `ProtocolComplete` = 1.
+- Tooling: the IDD keeps the last frame for snapshots when `HKLM\SOFTWARE\MultiSeat\RemoteIdd\Snapshots = 1`;
+  provider licence experiments via `HKLM\SOFTWARE\MultiSeat\Protocol\LicenseMode` (0 default).
+- Known issue: after seat sessions TermService can hang in StopPending; `Install-ProtocolProvider.ps1` renames the
+  loaded DLL, then kills the service after 30 s (test VM only). Root cause still to find (stacks via `cdb` in the VM).
+
+Open: the session still ends after ~30 s (`PreDisconnect(12)`); licensing for a full sign-in; then route the
 seat's captured keyboard/mouse (MultiSeatInput) to an input agent in that session. Later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 
