@@ -213,12 +213,19 @@ public sealed class Seat
     public string? AgentKey { get; set; }
 }
 
-/// <summary>A keyboard or mouse as seen by the Interception driver: slot 1-10 keyboards, 11-20 mice.</summary>
-public sealed record InputDevice(int Slot, string HardwareId)
+/// <summary>
+/// A keyboard or mouse. Interception: slot 1-10 keyboards, 11-20 mice.
+/// MultiSeatInput driver: slot = 100 + driver device id, and <see cref="Keyboard"/> says what it is.
+/// </summary>
+public sealed record InputDevice(int Slot, string HardwareId, bool? Keyboard = null)
 {
-    public bool IsKeyboard => Slot is >= 1 and <= 10;
+    public const int DriverSlotBase = 100;
 
-    public string Description => IsKeyboard ? $"Keyboard {Slot}" : $"Mouse {Slot - 10}";
+    public bool IsKeyboard => Keyboard ?? Slot is >= 1 and <= 10;
+
+    public string Description => Slot >= DriverSlotBase
+        ? $"{(IsKeyboard ? "Keyboard" : "Mouse")} {Slot - DriverSlotBase}"
+        : IsKeyboard ? $"Keyboard {Slot}" : $"Mouse {Slot - 10}";
 }
 
 /// <summary>What the agent inside a seat's session needs. One file per Windows user, readable only by that user.</summary>

@@ -93,6 +93,7 @@ internal sealed class MainForm : Form
         else
         {
             _router.Message += m => BeginInvoke(() => Log(m));
+            Log($"Input: {_router.SourceName}.");
         }
 
         Log($"Welcome! Up to {MultiSeatConfig.MaxSeats} players. Add a player for each extra person, then use " +

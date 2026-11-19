@@ -3,12 +3,13 @@ using MultiSeat.Core;
 namespace MultiSeat.Input;
 
 /// <summary>
-/// Owns the Interception driver for as long as MultiSeat is open.
+/// Owns the input driver for as long as MultiSeat is open.
 /// <list type="bullet">
 /// <item>Devices assigned to a running seat: sent only to that seat's agent, never to the main desktop.</item>
-/// <item>All other devices: passed through to the main desktop (seat 1) as normal.</item>
+/// <item>All other devices: go to the main desktop (seat 1) as normal.</item>
 /// <item>Pairing: "press a key on the keyboard for this seat" finds out which device that is.</item>
 /// </list>
+/// Uses our MultiSeatInput driver when it is installed, otherwise Interception.
 /// </summary>
 internal sealed class InputRouter : IDisposable
 {
@@ -18,26 +19,29 @@ internal sealed class InputRouter : IDisposable
     private const ushort ScanEscape = 0x01;
     private const ushort Extended = 0x100;
 
-    private readonly IntPtr _context;
-    private readonly Interception.Predicate _isKeyboard = d => Interception.IsKeyboard(d) ? 1 : 0;
-    private readonly Interception.Predicate _isMouse = d => Interception.IsMouse(d) ? 1 : 0;
-    private readonly HashSet<ushort>[] _pressed = Enumerable.Range(0, Interception.MaxDevice + 1).Select(_ => new HashSet<ushort>()).ToArray();
+    private const ushort KeyUp = 0x01;
+    private const ushort KeyE0 = 0x02;
+    private const ushort MouseMoveAbsolute = 0x001;
+    private const ushort MouseLeftUp = 0x002;
+    private const ushort MouseWheel = 0x400;
+    private const ushort MouseHWheel = 0x800;
+
+    private readonly IInputSource _source;
+    private readonly Dictionary<int, HashSet<ushort>> _pressed = new();
     private readonly Thread _thread;
     private readonly object _gate = new();
+    private readonly object _captureGate = new();
 
     private volatile bool _stop;
-    private SeatChannel?[] _routes = new SeatChannel?[Interception.MaxDevice + 1];
-    private Dictionary<SeatChannel, int> _seatKeyboard = new();
+    private Dictionary<int, SeatChannel> _routes = new();
     private List<SeatChannel> _channels = new();
     private TaskCompletionSource<InputDevice?>? _pairing;
     private bool _pairingKeyboard;
     private long _nextHeartbeat;
 
-    private InputRouter(IntPtr context)
+    private InputRouter(IInputSource source)
     {
-        _context = context;
-        Interception.SetFilter(_context, _isKeyboard, Interception.FilterAll);
-        Interception.SetFilter(_context, _isMouse, Interception.FilterAll);
+        _source = source;
         _thread = new Thread(Loop) { IsBackground = true, Name = "MultiSeat input", Priority = ThreadPriority.Highest };
         _thread.Start();
     }
@@ -45,41 +49,33 @@ internal sealed class InputRouter : IDisposable
     /// <summary>Raised on the input thread.</summary>
     public event Action<string>? Message;
 
+    /// <summary>Which driver is in use, for the log.</summary>
+    public string SourceName => _source.Name;
+
     public static InputRouter? TryCreate(out string? error)
     {
-        try
+        // Our own driver first; if it is installed but cannot be opened, say so instead of silently using Interception.
+        IInputSource? source = DriverInputSource.TryCreate(out error);
+        if (source is null && error is null)
         {
-            var context = Interception.CreateContext();
-            if (context == IntPtr.Zero)
-            {
-                error = "The Interception input driver is not running. Run MultiSeat-Setup.exe again and restart the PC.";
-                return null;
-            }
+            source = InterceptionSource.TryCreate(out error);
+        }
 
-            error = null;
-            return new InputRouter(context);
-        }
-        catch (DllNotFoundException)
-        {
-            error = "interception.dll is missing next to MultiSeat.exe. Run MultiSeat-Setup.exe again.";
-            return null;
-        }
+        return source is null ? null : new InputRouter(source);
     }
 
-    public string? HardwareId(int slot) => Interception.GetHardwareId(_context, slot);
+    public string? HardwareId(int slot) => _source.HardwareId(slot);
 
     /// <summary>Route the given seats' devices to their agents. Replaces any previous routing.</summary>
     public void SetRoutes(IEnumerable<SeatChannel> channels)
     {
-        var routes = new SeatChannel?[Interception.MaxDevice + 1];
-        var keyboards = new Dictionary<SeatChannel, int>();
+        var routes = new Dictionary<int, SeatChannel>();
         var list = channels.ToList();
         foreach (var c in list)
         {
             if (c.Seat.Keyboard is { } kb)
             {
                 routes[kb.Slot] = c;
-                keyboards[c] = kb.Slot;
             }
 
             if (c.Seat.Mouse is { } m)
@@ -91,9 +87,10 @@ internal sealed class InputRouter : IDisposable
         lock (_gate)
         {
             _routes = routes;
-            _seatKeyboard = keyboards;
             _channels = list;
         }
+
+        ApplyCapture();
     }
 
     public void ClearRoutes() => SetRoutes(Array.Empty<SeatChannel>());
@@ -111,6 +108,21 @@ internal sealed class InputRouter : IDisposable
 
         cancel.Register(() => tcs.TrySetResult(null));
         return tcs.Task;
+    }
+
+    /// <summary>Devices of running seats that are not lent to the main desktop must not reach Windows.</summary>
+    private void ApplyCapture()
+    {
+        HashSet<int> captured;
+        lock (_gate)
+        {
+            captured = _routes.Where(r => !r.Value.HostMode).Select(r => r.Key).ToHashSet();
+        }
+
+        lock (_captureGate)
+        {
+            _source.SetCaptured(captured);
+        }
     }
 
     private void Loop()
@@ -133,42 +145,47 @@ internal sealed class InputRouter : IDisposable
                 }
             }
 
-            var device = Interception.WaitWithTimeout(_context, 200);
-            if (device <= 0)
+            if (!_source.TryRead(200, out var input))
             {
                 continue;
             }
 
-            var stroke = default(Stroke);
-            if (Interception.Receive(_context, device, ref stroke, 1) <= 0)
-            {
-                continue;
-            }
-
-            CheckPairing(device, stroke);
+            CheckPairing(input);
 
             SeatChannel? seat;
             lock (_gate)
             {
-                seat = _routes[device];
+                _routes.TryGetValue(input.Device, out seat);
             }
 
-            if (Interception.IsKeyboard(device))
+            if (input.Keyboard)
             {
-                HandleKeyboard(device, seat, ref stroke);
+                HandleKeyboard(input, seat);
             }
             else if (seat is { HostMode: false })
             {
-                ForwardMouse(seat, stroke);
+                if (input.Captured)
+                {
+                    ForwardMouse(seat, input);
+                }
             }
             else
             {
-                Interception.Send(_context, device, ref stroke, 1);
+                PassToDesktop(input);
             }
         }
     }
 
-    private void CheckPairing(int device, in Stroke stroke)
+    /// <summary>Only Interception needs this; with MultiSeatInput the kernel already gave Windows every uncaptured event.</summary>
+    private void PassToDesktop(in RawInput input)
+    {
+        if (input.Captured && _source.RoutesEverything)
+        {
+            _source.Pass(input);
+        }
+    }
+
+    private void CheckPairing(in RawInput input)
     {
         TaskCompletionSource<InputDevice?>? pairing;
         bool wantKeyboard;
@@ -183,23 +200,23 @@ internal sealed class InputRouter : IDisposable
             return;
         }
 
-        var keyUp = Interception.IsKeyboard(device) && (stroke.KeyState & Interception.KeyUp) != 0;
+        var keyUp = input.Keyboard && (input.State & KeyUp) != 0;
         InputDevice? result = null;
         var done = false;
 
-        if (keyUp && stroke.KeyCode == ScanEscape && (stroke.KeyState & Interception.KeyE0) == 0)
+        if (keyUp && input.Code == ScanEscape && (input.State & KeyE0) == 0)
         {
             done = true; // cancelled
         }
         else if (wantKeyboard && keyUp)
         {
             done = true;
-            result = new InputDevice(device, HardwareId(device) ?? "unknown");
+            result = new InputDevice(input.Device, HardwareId(input.Device) ?? "unknown", Keyboard: true);
         }
-        else if (!wantKeyboard && Interception.IsMouse(device) && (stroke.MouseState & Interception.MouseLeftUp) != 0)
+        else if (!wantKeyboard && !input.Keyboard && (input.State & MouseLeftUp) != 0)
         {
             done = true;
-            result = new InputDevice(device, HardwareId(device) ?? "unknown");
+            result = new InputDevice(input.Device, HardwareId(input.Device) ?? "unknown", Keyboard: false);
         }
 
         if (done)
@@ -216,11 +233,15 @@ internal sealed class InputRouter : IDisposable
         }
     }
 
-    private void HandleKeyboard(int device, SeatChannel? seat, ref Stroke stroke)
+    private void HandleKeyboard(in RawInput input, SeatChannel? seat)
     {
-        var up = (stroke.KeyState & Interception.KeyUp) != 0;
-        var id = (ushort)(stroke.KeyCode | ((stroke.KeyState & Interception.KeyE0) != 0 ? Extended : 0));
-        var pressed = _pressed[device];
+        var up = (input.State & KeyUp) != 0;
+        var id = (ushort)(input.Code | ((input.State & KeyE0) != 0 ? Extended : 0));
+        if (!_pressed.TryGetValue(input.Device, out var pressed))
+        {
+            _pressed[input.Device] = pressed = new HashSet<ushort>();
+        }
+
         if (up)
         {
             pressed.Remove(id);
@@ -234,22 +255,26 @@ internal sealed class InputRouter : IDisposable
             && (pressed.Contains(ScanCtrl) || pressed.Contains(ScanCtrl | Extended))
             && (pressed.Contains(ScanAlt) || pressed.Contains(ScanAlt | Extended)))
         {
-            ToggleHostMode(seat, device);
+            ToggleHostMode(seat, input.Device, pressed);
             return;
         }
 
         if (seat is null || seat.HostMode)
         {
-            Interception.Send(_context, device, ref stroke, 1);
+            PassToDesktop(input);
             return;
         }
 
-        seat.Send(InputEvent.Key(stroke.KeyCode, (KeyFlags)(stroke.KeyState & 0x7)));
+        if (input.Captured)
+        {
+            seat.Send(InputEvent.Key(input.Code, (KeyFlags)(input.State & 0x7)));
+        }
     }
 
-    private void ToggleHostMode(SeatChannel seat, int keyboard)
+    private void ToggleHostMode(SeatChannel seat, int keyboard, HashSet<ushort> pressed)
     {
         seat.HostMode = !seat.HostMode;
+        ApplyCapture();
         if (seat.HostMode)
         {
             seat.Send(InputEvent.ReleaseAll());
@@ -258,22 +283,22 @@ internal sealed class InputRouter : IDisposable
         }
 
         // Ctrl/Alt went to the main desktop while in host mode: release them there.
-        foreach (var id in _pressed[keyboard])
+        // (MultiSeatInput does this itself when the device is captured again.)
+        if (_source.RoutesEverything)
         {
-            var release = new Stroke
+            foreach (var id in pressed)
             {
-                KeyCode = (ushort)(id & 0xFF),
-                KeyState = (ushort)(Interception.KeyUp | ((id & Extended) != 0 ? Interception.KeyE0 : 0)),
-            };
-            Interception.Send(_context, keyboard, ref release, 1);
+                var state = (ushort)(KeyUp | ((id & Extended) != 0 ? KeyE0 : 0));
+                _source.Pass(new RawInput(keyboard, true, true, (ushort)(id & 0xFF), state, 0, 0, 0, 0));
+            }
         }
 
         Message?.Invoke($"{seat.Seat.Name}: keyboard and mouse are back on the seat.");
     }
 
-    private static void ForwardMouse(SeatChannel seat, in Stroke s)
+    private static void ForwardMouse(SeatChannel seat, in RawInput s)
     {
-        if ((s.MouseFlags & Interception.MouseMoveAbsolute) != 0)
+        if ((s.Flags & MouseMoveAbsolute) != 0)
         {
             seat.Send(InputEvent.MoveAbsolute(s.X, s.Y));
         }
@@ -282,18 +307,18 @@ internal sealed class InputRouter : IDisposable
             seat.Send(InputEvent.Move(s.X, s.Y));
         }
 
-        var st = s.MouseState;
-        Button(seat, st, Interception.MouseLeftDown, Interception.MouseLeftUp, MouseButton.Left);
-        Button(seat, st, Interception.MouseRightDown, Interception.MouseRightUp, MouseButton.Right);
-        Button(seat, st, Interception.MouseMiddleDown, Interception.MouseMiddleUp, MouseButton.Middle);
-        Button(seat, st, Interception.MouseButton4Down, Interception.MouseButton4Up, MouseButton.X1);
-        Button(seat, st, Interception.MouseButton5Down, Interception.MouseButton5Up, MouseButton.X2);
-        if ((st & Interception.MouseWheel) != 0)
+        var st = s.State;
+        Button(seat, st, 0x001, 0x002, MouseButton.Left);
+        Button(seat, st, 0x004, 0x008, MouseButton.Right);
+        Button(seat, st, 0x010, 0x020, MouseButton.Middle);
+        Button(seat, st, 0x040, 0x080, MouseButton.X1);
+        Button(seat, st, 0x100, 0x200, MouseButton.X2);
+        if ((st & MouseWheel) != 0)
         {
             seat.Send(InputEvent.Wheel(s.Rolling));
         }
 
-        if ((st & Interception.MouseHWheel) != 0)
+        if ((st & MouseHWheel) != 0)
         {
             seat.Send(InputEvent.HWheel(s.Rolling));
         }
@@ -316,6 +341,6 @@ internal sealed class InputRouter : IDisposable
     {
         _stop = true;
         _thread.Join(1000);
-        Interception.DestroyContext(_context); // every device goes back to Windows
+        _source.Dispose(); // every device goes back to Windows
     }
 }

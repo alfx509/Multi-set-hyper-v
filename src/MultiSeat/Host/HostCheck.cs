@@ -79,7 +79,12 @@ internal static class HostCheck
             results.Add(new(CheckLevel.Ok, "Seats use the graphics card for games."));
         }
 
-        if (!File.Exists(Path.Combine(Environment.SystemDirectory, "drivers", "keyboard.sys")))
+        var drivers = Path.Combine(Environment.SystemDirectory, "drivers");
+        if (File.Exists(Path.Combine(drivers, "MultiSeatInput.sys")))
+        {
+            results.Add(new(CheckLevel.Ok, "MultiSeatInput driver installed (developer preview)."));
+        }
+        else if (!File.Exists(Path.Combine(drivers, "keyboard.sys")))
         {
             results.Add(new(CheckLevel.Error, "Interception input driver not installed. Run MultiSeat-Setup.exe again and restart."));
         }

@@ -130,3 +130,44 @@ public class ConfigTests
         Assert.Contains(config.Validate(), p => p.Contains("up to 8"));
     }
 }
+
+public class InputDeviceTests
+{
+    [Fact]
+    public void InterceptionSlotsKeepTheirMeaning()
+    {
+        Assert.True(new InputDevice(3, "k").IsKeyboard);
+        Assert.Equal("Keyboard 3", new InputDevice(3, "k").Description);
+        Assert.False(new InputDevice(12, "m").IsKeyboard);
+        Assert.Equal("Mouse 2", new InputDevice(12, "m").Description);
+    }
+
+    [Fact]
+    public void DriverDevicesUseTheirKind()
+    {
+        var mouse = new InputDevice(InputDevice.DriverSlotBase + 2, "HID-x", Keyboard: false);
+        var keyboard = new InputDevice(InputDevice.DriverSlotBase + 7, "HID-y", Keyboard: true);
+        Assert.False(mouse.IsKeyboard);
+        Assert.Equal("Mouse 2", mouse.Description);
+        Assert.True(keyboard.IsKeyboard);
+        Assert.Equal("Keyboard 7", keyboard.Description);
+    }
+
+    [Fact]
+    public void OldConfigWithoutKindStillLoads()
+    {
+        const string json = """{ "seats": [ { "name": "P2", "keyboard": { "slot": 2, "hardwareId": "HID-VID_1" } } ] }""";
+        var config = System.Text.Json.JsonSerializer.Deserialize<MultiSeatConfig>(json, MultiSeatConfig.JsonOptions)!;
+        Assert.Equal(new InputDevice(2, "HID-VID_1"), config.Seats[0].Keyboard);
+        Assert.True(config.Seats[0].Keyboard!.IsKeyboard);
+    }
+
+    [Fact]
+    public void KindSurvivesSaveAndLoad()
+    {
+        var config = new MultiSeatConfig();
+        config.Seats.Add(new Seat { Name = "P2", Mouse = new InputDevice(105, "HID-m", Keyboard: false) });
+        var back = System.Text.Json.JsonSerializer.Deserialize<MultiSeatConfig>(config.ToJson(), MultiSeatConfig.JsonOptions)!;
+        Assert.Equal(new InputDevice(105, "HID-m", Keyboard: false), back.Seats.Single(s => s.Name == "P2").Mouse);
+    }
+}
