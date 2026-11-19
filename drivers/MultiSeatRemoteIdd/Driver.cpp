@@ -31,6 +31,13 @@ Environment:
 
 static SRWLOCK g_LogLock = SRWLOCK_INIT;
 
+// Debug snapshot (B4): if C:\ProgramData\MultiSeat\snap.request exists, the next frame is written to
+// C:\ProgramData\MultiSeat\seat.bmp and the request file is deleted. Lets us see a seat's screen from outside.
+static const wchar_t* const kSnapRequest = L"C:\\ProgramData\\MultiSeat\\snap.request";
+static const wchar_t* const kSnapFile = L"C:\\ProgramData\\MultiSeat\\seat.bmp";
+
+static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, IDXGIResource* Surface);
+
 static void IddLog(const wchar_t* Format, ...)
 {
     wchar_t Message[512];
@@ -488,6 +495,12 @@ void SwapChainProcessor::RunCore()
             AcquiredBuffer.Attach(Buffer.MetaData.pSurface);
             FramesInWindow++;
 
+            if (GetFileAttributesW(kSnapRequest) != INVALID_FILE_ATTRIBUTES)
+            {
+                DeleteFileW(kSnapRequest);
+                SaveSnapshot(m_Device->Device.Get(), m_Device->DeviceContext.Get(), AcquiredBuffer.Get());
+            }
+
             // ==============================
             // TODO: Process the frame here
             //
@@ -530,6 +543,68 @@ void SwapChainProcessor::RunCore()
             break;
         }
     }
+}
+
+// Copies the frame to a CPU-readable texture and writes a 32-bit top-down BMP.
+static void SaveSnapshot(ID3D11Device* Device, ID3D11DeviceContext* Context, IDXGIResource* Surface)
+{
+    ComPtr<ID3D11Texture2D> Frame;
+    if (!Surface || FAILED(Surface->QueryInterface(IID_PPV_ARGS(&Frame))))
+    {
+        IddLog(L"Snapshot: surface is not a texture");
+        return;
+    }
+
+    D3D11_TEXTURE2D_DESC Desc;
+    Frame->GetDesc(&Desc);
+    Desc.Usage = D3D11_USAGE_STAGING;
+    Desc.BindFlags = 0;
+    Desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    Desc.MiscFlags = 0;
+    Desc.MipLevels = 1;
+    Desc.ArraySize = 1;
+    ComPtr<ID3D11Texture2D> Staging;
+    if (FAILED(Device->CreateTexture2D(&Desc, nullptr, &Staging)))
+    {
+        IddLog(L"Snapshot: CreateTexture2D failed (format %u)", static_cast<unsigned>(Desc.Format));
+        return;
+    }
+    Context->CopyResource(Staging.Get(), Frame.Get());
+
+    D3D11_MAPPED_SUBRESOURCE Mapped;
+    if (FAILED(Context->Map(Staging.Get(), 0, D3D11_MAP_READ, 0, &Mapped)))
+    {
+        IddLog(L"Snapshot: Map failed");
+        return;
+    }
+
+    const DWORD RowBytes = Desc.Width * 4;
+    BITMAPFILEHEADER File = {};
+    BITMAPINFOHEADER Info = {};
+    Info.biSize = sizeof(Info);
+    Info.biWidth = static_cast<LONG>(Desc.Width);
+    Info.biHeight = -static_cast<LONG>(Desc.Height);   // top-down
+    Info.biPlanes = 1;
+    Info.biBitCount = 32;
+    Info.biCompression = BI_RGB;
+    File.bfType = 0x4D42;                               // "BM"
+    File.bfOffBits = sizeof(File) + sizeof(Info);
+    File.bfSize = File.bfOffBits + RowBytes * Desc.Height;
+
+    HANDLE Out = CreateFileW(kSnapFile, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (Out != INVALID_HANDLE_VALUE)
+    {
+        DWORD Written = 0;
+        WriteFile(Out, &File, sizeof(File), &Written, nullptr);
+        WriteFile(Out, &Info, sizeof(Info), &Written, nullptr);
+        for (UINT Row = 0; Row < Desc.Height; Row++)
+        {
+            WriteFile(Out, static_cast<const BYTE*>(Mapped.pData) + static_cast<size_t>(Row) * Mapped.RowPitch, RowBytes, &Written, nullptr);
+        }
+        CloseHandle(Out);
+        IddLog(L"Snapshot: %ux%u format %u -> seat.bmp", Desc.Width, Desc.Height, static_cast<unsigned>(Desc.Format));
+    }
+    Context->Unmap(Staging.Get(), 0);
 }
 
 #pragma endregion

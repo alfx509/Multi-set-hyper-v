@@ -151,9 +151,57 @@ static int Spin(int seconds)
     return 0;
 }
 
+// ------------------------------------------------------------------ input test (B4)
+
+// Switches to the session's current input desktop (Winlogon before sign-in), clicks the screen centre and
+// types the text with SendInput. Logs how many events Windows accepted.
+static int InputTest(const wchar_t* text)
+{
+    HDESK desktop = OpenInputDesktop(0, FALSE, GENERIC_ALL);
+    if (!desktop) {
+        Log(L"input: OpenInputDesktop failed (%lu)", GetLastError());
+        return 1;
+    }
+    wchar_t name[128] = {};
+    DWORD needed = 0;
+    GetUserObjectInformationW(desktop, UOI_NAME, name, sizeof(name), &needed);
+    if (!SetThreadDesktop(desktop)) {
+        Log(L"input: SetThreadDesktop(%s) failed (%lu)", name, GetLastError());
+        return 1;
+    }
+    Log(L"input: on desktop %s, screen %dx%d", name, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+
+    INPUT click[3] = {};
+    click[0].type = INPUT_MOUSE;
+    click[0].mi.dx = 32768;
+    click[0].mi.dy = 32768;
+    click[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    click[1].type = INPUT_MOUSE;
+    click[1].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    click[2].type = INPUT_MOUSE;
+    click[2].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    UINT sent = SendInput(3, click, sizeof(INPUT));
+    Log(L"input: mouse move+click -> %u of 3 accepted (%lu)", sent, sent == 3 ? 0 : GetLastError());
+    Sleep(1500);
+
+    UINT keys = 0, accepted = 0;
+    for (const wchar_t* c = text; *c; c++) {
+        INPUT key[2] = {};
+        key[0].type = key[1].type = INPUT_KEYBOARD;
+        key[0].ki.wScan = key[1].ki.wScan = *c;
+        key[0].ki.dwFlags = KEYEVENTF_UNICODE;
+        key[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        accepted += SendInput(2, key, sizeof(INPUT));
+        keys += 2;
+        Sleep(60);
+    }
+    Log(L"input: typed \"%s\" -> %u of %u key events accepted", text, accepted, keys);
+    return 0;
+}
+
 // ------------------------------------------------------------------ launch into another session (needs SYSTEM)
 
-static int Launch(DWORD session, int seconds)
+static int Launch(DWORD session, const wchar_t* childArgs)
 {
     HANDLE self = nullptr, primary = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, &self) ||
@@ -171,8 +219,8 @@ static int Launch(DWORD session, int seconds)
 
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    wchar_t commandLine[MAX_PATH + 64];
-    swprintf_s(commandLine, L"\"%s\" spin %d", exe, seconds);
+    wchar_t commandLine[MAX_PATH + 256];
+    swprintf_s(commandLine, L"\"%s\" %s", exe, childArgs);
 
     // Before sign-in the session shows the Winlogon desktop; after sign-in the user's Default desktop.
     const wchar_t* desktops[] = { L"winsta0\\winlogon", L"winsta0\\default" };
@@ -183,7 +231,7 @@ static int Launch(DWORD session, int seconds)
         PROCESS_INFORMATION pi = {};
         if (CreateProcessAsUserW(primary, nullptr, commandLine, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
                 nullptr, &si, &pi)) {
-            Log(L"launch: started spin in session %lu on %s (pid %lu)", session, desktop, pi.dwProcessId);
+            Log(L"launch: started \"%s\" in session %lu on %s (pid %lu)", childArgs, session, desktop, pi.dwProcessId);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
             CloseHandle(primary);
@@ -201,10 +249,21 @@ int wmain(int argc, wchar_t** argv)
     if (argc >= 2 && _wcsicmp(argv[1], L"spin") == 0) {
         return Spin(argc >= 3 ? _wtoi(argv[2]) : 20);
     }
+    if (argc >= 3 && _wcsicmp(argv[1], L"input") == 0) {
+        return InputTest(argv[2]);
+    }
     if (argc >= 3 && _wcsicmp(argv[1], L"launch") == 0) {
-        return Launch(static_cast<DWORD>(_wtoi(argv[2])), argc >= 4 ? _wtoi(argv[3]) : 20);
+        // launch <session> [seconds]            -> spin
+        // launch <session> spin|input <arg>     -> that mode inside the session
+        wchar_t childArgs[256];
+        if (argc >= 5) {
+            swprintf_s(childArgs, L"%s %s", argv[3], argv[4]);
+        } else {
+            swprintf_s(childArgs, L"spin %d", argc >= 4 ? _wtoi(argv[3]) : 20);
+        }
+        return Launch(static_cast<DWORD>(_wtoi(argv[2])), childArgs);
     }
 
-    fputws(L"Usage: SeatSpinner spin [seconds] | launch <session> [seconds]\n", stdout);
+    fputws(L"Usage: SeatSpinner spin [seconds] | input <text> | launch <session> [seconds | spin <s> | input <text>]\n", stdout);
     return 2;
 }

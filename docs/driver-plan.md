@@ -173,6 +173,21 @@ so the gap to 144 is not CPU power; likely per-frame pacing delay in the VM's so
 simple swap-chain loop (16 ms wait timeout). **Final answer needs the test PC with a real GPU** (then also tune the
 IDD frame loop). Seat mode for tests: `HKLM\SOFTWARE\MultiSeat\RemoteIdd` `Width`/`Height` (DWORD, 144 Hz).
 
+**B4 first result (2026-11-19): input reaches the seat's sign-in screen.**
+- Windows already creates per-session input devices for our seats: `TERMINPUT_BUS\UMB\...SESSION<n>KEYBOARD0` /
+  `...MOUSE0` (driver `terminpt`, like RDP). `GetInputHandles` returning no handles is fine.
+- Step 1 (documented): `SeatSpinner input <text>` runs as SYSTEM inside the seat session (`launch <session> input ...`),
+  attaches to the input desktop (Winlogon) and uses `SendInput`: 3/3 mouse and 18/18 key events accepted.
+- The remote IDD can now save the seat's screen: create `C:\ProgramData\MultiSeat\snap.request` → next frame →
+  `seat.bmp` (`setup/dev/Test-SeatInput.ps1`). The snapshot shows the seat's "Other user" sign-in screen with the
+  first injected letter in the user name box:
+
+![Seat sign-in screen from the remote IDD, with injected text](images/b4-seat-signin-typing.png)
+
+Open: the session still ends after ~30 s (`PreDisconnect(12)`); a full sign-in with a test user; then route the
+seat's captured keyboard/mouse (MultiSeatInput) to an input agent in that session. Later, more native: feed the
+seat's own `terminpt` devices directly (undocumented – research).
+
 Questions to answer with measurements before writing the display driver:
 
 1. **What does a player session get today?** Run `tools/SeatProbe` in the console session and in a
