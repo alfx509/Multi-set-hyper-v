@@ -125,7 +125,8 @@ void ReadEvents(TimeSpan duration)
                     var wheel = BitConverter.ToInt16(buffer, off + 12);
                     var x = BitConverter.ToInt32(buffer, off + 16);
                     var y = BitConverter.ToInt32(buffer, off + 20);
-                    Console.WriteLine($"  dev {dev,3} mouse dx {x,5} dy {y,5} buttons 0x{buttons:X3} wheel {wheel,4}  {captured}");
+                    var pos = (flags & 1) != 0 ? $"abs x {x,5}  y {y,5}" : $"rel dx {x,5} dy {y,5}"; // MOUSE_MOVE_ABSOLUTE = 1
+                    Console.WriteLine($"  dev {dev,3} mouse {pos} buttons 0x{buttons:X3} wheel {wheel,4}  {captured}");
                 }
             }
         }

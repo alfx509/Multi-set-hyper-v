@@ -62,11 +62,11 @@ C:\MultiSeatDev\InputProbe.exe capture <id> 10
 ```
 
 **Tests (all must pass):**
-- [ ] Builds with warnings-as-errors; Driver Verifier (`verifier /standard /driver MultiSeatInput.sys`) runs a full day with no bug check.
-- [ ] `list` shows every keyboard and mouse with its hardware id.
-- [ ] `watch` shows events with the right device id; nothing is lost on the desktop.
-- [ ] `capture` takes ONE device away (desktop ignores it, InputProbe shows it); other devices still work.
-- [ ] Holding Ctrl while capture starts does not leave Ctrl stuck on the desktop.
+- [ ] Builds with warnings-as-errors (done, 2026-11-19); Driver Verifier (`verifier /standard /driver MultiSeatInput.sys`) runs a full day with no bug check.
+- [x] `list` shows every keyboard and mouse with its hardware id. (VM: VMBus keyboard, HID mouse, and RDP `TS_INPT` keyboard/mouse in enhanced session)
+- [x] `watch` shows events with the right device id; nothing is lost on the desktop.
+- [x] `capture` takes ONE device away (desktop ignores it, InputProbe shows it); other devices still work. (keyboard id 1/3 and mouse id 2 tested)
+- [ ] Holding Ctrl while capture starts does not leave Ctrl stuck on the desktop. (held Enter was released correctly; Ctrl still to confirm)
 - [ ] Killing InputProbe (Task Manager) gives the device back immediately.
 - [ ] Plug/unplug while running: no crash, ids update.
 - [ ] Works with HVCI (Memory Integrity) on.

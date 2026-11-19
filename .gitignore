@@ -8,3 +8,6 @@ third_party/
 # Research notes and reports (local)
 research_notes/
 reports/
+
+# Local ISO images
+iso/

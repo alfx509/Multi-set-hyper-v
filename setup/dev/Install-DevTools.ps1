@@ -18,7 +18,8 @@ $ErrorActionPreference = 'Stop'
 function Step([string]$m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Winget([string]$id, [string[]]$extra = @()) {
     Step "winget install $id"
-    & winget install --id $id -e --accept-package-agreements --accept-source-agreements --silent @extra
+    # winget.exe, not winget: this function is also called 'Winget' and would call itself.
+    & winget.exe install --id $id -e --accept-package-agreements --accept-source-agreements --silent @extra
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {   # -1978335189 = already installed
         Write-Warning "${id}: winget exit code $LASTEXITCODE"
     }
@@ -34,9 +35,23 @@ if (-not $SkipVisualStudio) {
         'Microsoft.VisualStudio.Workload.ManagedDesktop',
         'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
         'Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre',
-        'Microsoft.VisualStudio.Component.Windows11SDK.26100'
+        'Microsoft.VisualStudio.Component.Windows11SDK.26100',
+        'Component.Microsoft.Windows.DriverKit'                    # WDK Visual Studio extension
     ) | ForEach-Object { "--add $_" }
-    Winget 'Microsoft.VisualStudio.2022.Community' @('--override', "--passive --wait --includeRecommended $($vsComponents -join ' ')")
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    $vsPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -property installationPath } else { $null }
+    $vsComplete = $vsPath -and (& $vswhere -latest -products * -requires ($vsComponents -replace '^--add ', '') -property installationPath)
+    if ($vsComplete) {
+        Step 'Visual Studio already has every needed component'
+    } elseif ($vsPath) {
+        # winget skips packages that are already installed, so add missing components with the VS installer.
+        Step "Visual Studio found at $vsPath - adding missing components"
+        $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+        $p = Start-Process $setup -ArgumentList (@('modify', '--installPath', "`"$vsPath`"", '--passive', '--norestart', '--includeRecommended') + ($vsComponents -join ' ').Split(' ')) -Wait -PassThru
+        if ($p.ExitCode -notin 0, 3010) { Write-Warning "Visual Studio installer exit code $($p.ExitCode)" }
+    } else {
+        Winget 'Microsoft.VisualStudio.2022.Community' @('--override', "--passive --wait --includeRecommended $($vsComponents -join ' ')")
+    }
     Winget 'Microsoft.WindowsSDK.10.0.26100'
     Winget 'Microsoft.WindowsWDK.10.0.26100'
     Write-Host '    If the WDK Visual Studio extension is missing: Visual Studio Installer -> Modify -> Individual components ->'
