@@ -94,6 +94,38 @@ Step A shows that a third-party, test-signed IddCx driver works and DWM composes
 monitor's full 144 Hz (even with software rendering in the VM). Still open: does a **non-console**
 session get the same rate (step B: protocol provider + remote IDD)?
 
+### Step B plan – "MultiSeat Local" protocol provider (test VM, Windows Server)
+
+How Windows uses a provider ([Protocol Provider API](https://learn.microsoft.com/windows/win32/termserv/custom-remote-desktop-protocols)):
+- A COM DLL loaded by Remote Desktop Services (TermService). Registered as a listener key
+  `HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\MultiSeat-Local`
+  with `LoadableProtocol_Object` = CLSID of our `IWRdsProtocolManager`.
+- Start: `Initialize` → `CreateListener` → `StartListen(callback)`.
+- A seat opens when our listener calls `IWRdsProtocolListenerCallback::OnConnected` with our
+  `IWRdsProtocolConnection`. Windows then calls, in order: `GetLogonErrorRedirector`, `AcceptConnection`,
+  `GetClientData`, `GetClientMonitorData`, `GetUserCredentials`, `GetLicenseConnection`,
+  `AuthenticateClientToSession`, `NotifySessionId`, `GetInputHandles`, `GetVideoHandle`, `ConnectNotify`,
+  `NotifyCommandProcessCreated`, `IsUserAllowedToLogon`, `SessionArbitrationEnumeration`, `LogonNotify`.
+- Display: the connection also implements `IWRdsWddmIddProps`; `GetHardwareId` names the remote IDD
+  Windows loads for that session; `OnDriverLoad` gives us a handle to it.
+- Input: `GetInputHandles` gives the session its keyboard/mouse handles (later: per-seat devices from
+  MultiSeatInput).
+- Server only ("client: none supported"). Without the RDSH role, Server allows 2 sessions – enough to test.
+- No Microsoft sample exists; every method must be written and logged. Never call RDS APIs from these
+  callbacks (deadlock); use our own thread.
+
+Small experiments, each one answers one question:
+
+| # | Build | Question | Pass when |
+|---|---|---|---|
+| B1 | `MultiSeatProtocol.dll` that only logs every call; a trigger (named pipe) makes the listener call `OnConnected` | Does Windows create a session for our provider? | `qwinsta` shows a new session on station `MultiSeat-Local`; log shows the call order |
+| B2 | IddSample changed to a **remote IDD** (`IDDCX_ADAPTER_FLAGS_REMOTE_SESSION_DRIVER` + `USE_SMALLEST_MODE`), hardware id returned from `GetHardwareId` | Does Windows load our remote IDD into that session? | Device appears for the session; `IddCxAdapterInitAsync` succeeds |
+| B3 | Report a 144 Hz monitor from the remote IDD; run SeatProbe inside the session | **Is the frame rate capped like RDP?** | DWM compositions/s ≈ 144 |
+| B4 | Input handles + logon screen | Can a player sign in on that session? | Keyboard/mouse work on the seat's sign-in screen |
+
+Safety: TermService loads the DLL – a crash stops Remote Desktop in the VM only. Checkpoint before each
+experiment. Uninstall = delete the listener key + `regsvr32 /u` + restart TermService.
+
 Questions to answer with measurements before writing the display driver:
 
 1. **What does a player session get today?** Run `tools/SeatProbe` in the console session and in a
