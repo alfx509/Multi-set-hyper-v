@@ -52,6 +52,14 @@ if ($Uninstall) {
 }
 
 if (-not (Test-Path $SysPath)) { throw "$SysPath not found." }
+
+# Trust the self-made test certificate (made by Sign-TestDriver.ps1) - TEST VM ONLY.
+$cer = Join-Path (Split-Path $SysPath) 'MultiSeatTest.cer'
+if (Test-Path $cer) {
+    Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+    Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+    Write-Host '  Trusted the MultiSeat Test certificate (test VM only).'
+}
 Copy-Item -Force $SysPath $target
 if (-not (Get-Service $service -ErrorAction SilentlyContinue)) {
     sc.exe create $service type= kernel start= demand error= normal binPath= "System32\drivers\$service.sys" DisplayName= "MultiSeat input filter" | Out-Null

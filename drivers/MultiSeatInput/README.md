@@ -9,8 +9,8 @@ input to Windows or **captures** it for the MultiSeat manager (which sends it to
 - Fail-safe: closing the handle (exit or crash of the manager) puts every device back to PASS;
   held keys/buttons are released to Windows before a device is captured.
 
-> **Status: never compiled yet.** Written without a Windows build machine. Build with VS 2022 + WDK and
-> test **only in the test VM** (see [docs/driver-plan.md](../../docs/driver-plan.md), Phase 1).
+> **Status: compiles (CI, VS 2022 + WDK, /W4 /WX, 0 warnings) but has never run yet.** The build output is
+> unsigned: `setup/dev/Sign-TestDriver.ps1` test-signs it. Test **only in the test VM** (see [docs/driver-plan.md](../../docs/driver-plan.md), Phase 1).
 > A broken keyboard/mouse class filter can disable all input – recovery steps are in
 > `setup/dev/Install-InputDriver.ps1`.
 

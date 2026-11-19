@@ -27,7 +27,9 @@ $files = @(
     (Join-Path $PSScriptRoot 'Install-InputDriver.ps1')
 )
 if (-not $ToolsOnly) {
+    & (Join-Path $PSScriptRoot 'Sign-TestDriver.ps1') -Configuration $Configuration
     $files += Join-Path $repo "out\drivers\$Configuration\MultiSeatInput.sys"
+    $files += Join-Path $repo "out\drivers\$Configuration\MultiSeatTest.cer"
     foreach ($tool in 'InputProbe', 'SeatProbe') {
         $dir = Join-Path $repo "out\$tool"
         if (Test-Path $dir) { $files += Get-ChildItem $dir -File | ForEach-Object FullName }

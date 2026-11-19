@@ -30,7 +30,7 @@
 | `src/MultiSeat` | Manager app (WinForms, admin): seats, pairing, start/stop, tray, settings, input router, session launcher |
 | `src/SeatAgent` | Runs in each player session (scheduled task at logon); injects routed input with SendInput |
 | `src/MultiSeat.Core` | Config model, authenticated UDP packet format, RDP file builder (unit-tested) |
-| `drivers/MultiSeatInput` | **KMDF keyboard/mouse class filter (prototype, never compiled yet)** – replaces Interception |
+| `drivers/MultiSeatInput` | **KMDF keyboard/mouse class filter (prototype)** – compiles in CI (0 warnings) but never run yet; replaces Interception |
 | `tools/SeatProbe` | Reports what a session gets: console/remote, GPU, outputs, DWM fps, desktop duplication fps |
 | `tools/InputProbe` | Test tool for MultiSeatInput: `list`, `watch`, `capture <id>` |
 | `setup/Configure-MultiSeat.ps1` | Windows settings run by the installer |
@@ -52,7 +52,7 @@ dotnet test tests\MultiSeat.Core.Tests
 dotnet publish tools\SeatProbe -c Release -r win-x64 --self-contained -o out\SeatProbe
 dotnet publish tools\InputProbe -c Release -r win-x64 --self-contained -o out\InputProbe
 msbuild drivers\MultiSeatInput\MultiSeatInput.vcxproj /p:Configuration=Debug /p:Platform=x64
-.\setup\dev\Deploy-ToTestVM.ps1 -Install   # driver → test VM, install, restart VM
+.\setup\dev\Deploy-ToTestVM.ps1 -Install   # test-signs (Sign-TestDriver.ps1), copies to the VM, installs, restarts VM
 ```
 
 CI (`.github/workflows/build.yml`) builds and tests on every push; **Actions → build → Run workflow** with
