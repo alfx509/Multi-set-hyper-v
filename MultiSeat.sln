@@ -11,6 +11,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SeatAgent", "src\SeatAgent\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MultiSeat.Core.Tests", "tests\MultiSeat.Core.Tests\MultiSeat.Core.Tests.csproj", "{720D3C96-E614-5E92-BDC6-D44990BAC19C}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SeatProbe", "tools\SeatProbe\SeatProbe.csproj", "{E67197F2-3B5A-5C97-B21E-AD8882277A78}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "InputProbe", "tools\InputProbe\InputProbe.csproj", "{3BB0160F-FB87-5FDD-9C99-BE777FAD0626}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,5 +37,13 @@ Global
 		{720D3C96-E614-5E92-BDC6-D44990BAC19C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{720D3C96-E614-5E92-BDC6-D44990BAC19C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{720D3C96-E614-5E92-BDC6-D44990BAC19C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E67197F2-3B5A-5C97-B21E-AD8882277A78}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E67197F2-3B5A-5C97-B21E-AD8882277A78}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E67197F2-3B5A-5C97-B21E-AD8882277A78}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E67197F2-3B5A-5C97-B21E-AD8882277A78}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3BB0160F-FB87-5FDD-9C99-BE777FAD0626}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3BB0160F-FB87-5FDD-9C99-BE777FAD0626}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3BB0160F-FB87-5FDD-9C99-BE777FAD0626}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3BB0160F-FB87-5FDD-9C99-BE777FAD0626}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

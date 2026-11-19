@@ -89,3 +89,35 @@ jobs:
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Developer tools and the (prototype) keyboard/mouse driver. Allowed to fail while the driver is new.
+  tools-and-driver:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish SeatProbe and InputProbe
+        run: |
+          dotnet publish tools/SeatProbe -c Release -r win-x64 --self-contained true -o out/SeatProbe
+          dotnet publish tools/InputProbe -c Release -r win-x64 --self-contained true -o out/InputProbe
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build MultiSeatInput driver (test-signed, for test VMs only)
+        shell: pwsh
+        run: msbuild drivers/MultiSeatInput/MultiSeatInput.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dev-tools-and-driver
+          path: |
+            out/SeatProbe/
+            out/InputProbe/
+            out/drivers/
+            setup/dev/
