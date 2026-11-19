@@ -50,6 +50,8 @@ internal sealed class MainForm : Form
     private readonly Dictionary<Seat, SeatSession> _sessions = new();
     private readonly Dictionary<Seat, SeatChannel> _channels = new();
     private readonly Dictionary<Seat, int> _reopenCount = new();
+    private readonly CursorFence _fence = new();
+    private bool _fenceOn;
     private bool _running;
     private bool _starting;
     private int _tick;
@@ -619,6 +621,13 @@ internal sealed class MainForm : Form
             // Start all players' screens at the same time; signing in takes a few seconds each.
             await Task.WhenAll(seats.Select(s => LaunchAsync(s)));
             _running = true;
+            if (_config.ConfineConsoleCursor && Monitors.Find(_config.Seats[0].Monitor) is null)
+            {
+                Log("⚠ Seat 1 (this desktop) has no monitor chosen, so your mouse can move onto players' screens. " +
+                    "Edit Seat 1 and choose your monitor.");
+            }
+
+            UpdateFence(force: true);
             Log($"▶ {seats.Count + 1} players. Each keyboard and mouse now works only on its own screen.");
         }
         finally
@@ -686,8 +695,8 @@ internal sealed class MainForm : Form
         }
 
         _sessions.Clear();
-        ClipCursor(IntPtr.Zero);
         _running = false;
+        UpdateFence(force: false);
         Log("■ Stopped. All keyboards and mice are back on the main desktop. Players stay signed in (games keep running) " +
             "until you use Players → Sign out all players.");
         UpdateButtons();
@@ -734,13 +743,7 @@ internal sealed class MainForm : Form
     private async void OnTick()
     {
         _tick++;
-        if (_running && _config.ConfineConsoleCursor && Monitors.Find(_config.Seats[0].Monitor) is { } console)
-        {
-            // Keep the main desktop's mouse on its own monitor, so it cannot wander onto a player's screen.
-            var b = console.Bounds;
-            var rect = new NativeRect { Left = b.Left, Top = b.Top, Right = b.Right, Bottom = b.Bottom };
-            ClipCursor(ref rect);
-        }
+        UpdateFence(force: false);
 
         if (_tick % 2 == 0)
         {
@@ -823,11 +826,7 @@ internal sealed class MainForm : Form
             Log(m);
         }
 
-        if (!_config.ConfineConsoleCursor)
-        {
-            ClipCursor(IntPtr.Zero);
-        }
-
+        UpdateFence(force: true);
         Log("Settings saved.");
     }
 
@@ -896,6 +895,7 @@ internal sealed class MainForm : Form
 
         Stop();
         _timer.Stop();
+        _fence.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         _router?.Dispose();
@@ -913,18 +913,32 @@ internal sealed class MainForm : Form
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect
+    /// <summary>Keeps the main desktop's mouse on the main desktop's monitor while players play.</summary>
+    private void UpdateFence(bool force)
     {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
+        var console = Monitors.Find(_config.Seats[0].Monitor);
+        var want = _running && _config.ConfineConsoleCursor && console is not null;
+        if (want && (!_fenceOn || force))
+        {
+            try
+            {
+                _fence.Enable(console!.Bounds);
+                _fenceOn = true;
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                Log("✖ " + ex.Message);
+                _config.ConfineConsoleCursor = false;
+            }
+        }
+        else if (want)
+        {
+            _fence.Reclip();
+        }
+        else if (_fenceOn)
+        {
+            _fence.Disable();
+            _fenceOn = false;
+        }
     }
-
-    [DllImport("user32.dll")]
-    private static extern bool ClipCursor(ref NativeRect rect);
-
-    [DllImport("user32.dll")]
-    private static extern bool ClipCursor(IntPtr rect);
 }
