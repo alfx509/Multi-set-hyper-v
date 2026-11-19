@@ -83,6 +83,17 @@ Two paths are studied side by side:
   Needs a real test PC with a GPU – setup and observation steps: [test-pc.md](test-pc.md).
 - **Documented path:** protocol provider + remote IddCx (questions 3–4 below). Can start in the VM.
 
+**Results so far (test VM, 2026-11-19, SeatProbe):**
+
+| Step | Session | Displays | DWM compositions/s |
+|---|---|---|---|
+| VMConnect enhanced session (RDP) | 1, protocol 2 | Microsoft Remote Display Adapter 1366x768 | **32** (RDP cap, `DWMFRAMEINTERVAL` not set) |
+| A: Microsoft IddSampleDriver (console IddCx, test-signed) | console, protocol 0 | Hyper-V Video + 3 IDD monitors (1024x768@75, **2560x1440@144**, 3840x2160@60) | **144.1** |
+
+Step A shows that a third-party, test-signed IddCx driver works and DWM composes at the IDD
+monitor's full 144 Hz (even with software rendering in the VM). Still open: does a **non-console**
+session get the same rate (step B: protocol provider + remote IDD)?
+
 Questions to answer with measurements before writing the display driver:
 
 1. **What does a player session get today?** Run `tools/SeatProbe` in the console session and in a
