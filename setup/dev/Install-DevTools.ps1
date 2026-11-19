@@ -39,7 +39,7 @@ if (-not $SkipVisualStudio) {
     Winget 'Microsoft.VisualStudio.2022.Community' @('--override', "--passive --wait --includeRecommended $($vsComponents -join ' ')")
     Winget 'Microsoft.WindowsSDK.10.0.26100'
     Winget 'Microsoft.WindowsWDK.10.0.26100'
-    Write-Host '    If the WDK Visual Studio extension is missing: Visual Studio Installer → Modify → Individual components →'
+    Write-Host '    If the WDK Visual Studio extension is missing: Visual Studio Installer -> Modify -> Individual components ->'
     Write-Host '    "Windows Driver Kit", or see https://learn.microsoft.com/windows-hardware/drivers/download-the-wdk'
 }
 

@@ -25,7 +25,7 @@ function Invoke-Native {
 
 if (-not $SkipTests) { Invoke-Native dotnet @('test', 'tests\MultiSeat.Core.Tests', '-c', 'Release') }
 
-# "0.3.0-test.1" → file version 0.3.0 (Windows file versions are numbers only).
+# "0.3.0-test.1" -> file version 0.3.0 (Windows file versions are numbers only).
 $numeric = ($Version -split '[-+]')[0]
 
 foreach ($p in 'MultiSeat', 'SeatAgent') {

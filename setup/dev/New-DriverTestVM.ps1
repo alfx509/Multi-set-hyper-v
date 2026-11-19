@@ -13,7 +13,7 @@
       1. Inside the VM, as Administrator:  C:\...\Enable-DriverTesting.ps1 -HostIp <this PC's IP>
          (or copy it in with Deploy-ToTestVM.ps1 -ToolsOnly)
       2. On this PC:  Checkpoint-VM -Name MultiSeatDriverTest -SnapshotName clean
-         → after any blue screen:  Restore-VMCheckpoint -VMName MultiSeatDriverTest -Name clean -Confirm:$false
+         -> after any blue screen:  Restore-VMCheckpoint -VMName MultiSeatDriverTest -Name clean -Confirm:$false
 
 .EXAMPLE
     .\New-DriverTestVM.ps1 -IsoPath D:\ISO\WindowsServer2025_eval.iso

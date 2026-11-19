@@ -92,7 +92,8 @@ jobs:
 
   # Developer tools and the (prototype) keyboard/mouse driver. Allowed to fail while the driver is new.
   tools-and-driver:
-    runs-on: windows-latest
+    # windows-2022 ships Visual Studio 2022 with the Windows Driver Kit (windows-latest has no WDK).
+    runs-on: windows-2022
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
