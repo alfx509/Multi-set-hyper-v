@@ -23,8 +23,10 @@ driver signing rules). Short version:
 2. **Never ship a test-signed driver to users.** Releases need Microsoft signing (Phase 5).
 3. **No licensing workarounds.** No `termsrv.dll` patching, no RDP Wrapper, no bypassing the
    one-session limit of Windows 10/11 Pro. Multi-session target = **Windows Server** (RDSH licensing).
-4. **No disassembling ASTER.** Black-box observation of what Windows reports (sessions, drivers loaded,
-   displays seen from inside a workplace, fps) is fine; reverse-engineering its binaries is not.
+4. **ASTER: observe first, never copy.** Start with black-box observation and the kernel debugger
+   (sessions, drivers loaded, displays seen from inside a workplace, fps, `!chkimg` on dxgkrnl/win32k,
+   registered callbacks). Disassembling ASTER's driver only if that is not enough, only to learn how it
+   uses Windows, and after checking ASTER's licence. Never copy ASTER code.
 5. Every driver must be HVCI (Memory Integrity) compatible and must fail **safe**: if MultiSeat stops,
    every keyboard, mouse and monitor goes back to the main desktop.
 
@@ -75,6 +77,11 @@ C:\MultiSeatDev\InputProbe.exe capture <id> 10
 backend) and make it the default when the driver is present.
 
 ## Phase 2 – Display feasibility (the hard part)
+
+Two paths are studied side by side:
+- **Kernel path (ASTER-style, main goal):** a seat's session shows directly on one output of the same GPU.
+  Needs a real test PC with a GPU – setup and observation steps: [test-pc.md](test-pc.md).
+- **Documented path:** protocol provider + remote IddCx (questions 3–4 below). Can start in the VM.
 
 Questions to answer with measurements before writing the display driver:
 

@@ -9,6 +9,8 @@
 - They tested v0.3.0-test.1 on Windows Server and rejected it: player screens are RDP windows capped at
   60 fps, and the main mouse could move onto player monitors (now fixed with a low-level mouse hook).
 - **Main focus now: an ASTER-style native implementation (drivers).** Plan: [docs/driver-plan.md](docs/driver-plan.md).
+  Monitors must be native like ASTER (all seats on one GPU, no RDP, no streaming). Anti-cheat games are not a goal.
+  The kernel display path waits for a test PC: [docs/test-pc.md](docs/test-pc.md).
   Research: [docs/research/aster-research.md](docs/research/aster-research.md).
 - This session runs on the user's own PC, so you can build drivers, create/drive the Hyper-V test VM and
   run tests directly. Ask before anything that changes their main Windows (drivers, bcdedit, policies).
@@ -20,7 +22,11 @@
 2. **Never ship test-signed drivers** in `MultiSeat-Setup.exe` or releases.
 3. **No licensing workarounds**: no termsrv.dll patching / RDP Wrapper / bypassing the Windows 10/11
    one-session limit. Multi-session target is Windows Server. (The user was told this and why.)
-4. **No disassembly of ASTER.** Black-box observation is fine (see driver-plan Phase 2).
+4. **ASTER: observe first, never copy.** First learn from black-box observation and the kernel debugger
+   (e.g. `!chkimg` to see which Windows functions change, registered callbacks, session/display state).
+   Disassembling ASTER's driver is allowed (user decision, 2026-11-19) **only if observation is not enough**,
+   only to learn how Windows is used, and after the user has checked ASTER's licence. Never copy ASTER code;
+   write findings as "what Windows does", then write our own code.
 5. Everything must fail safe: if MultiSeat exits or crashes, every device returns to the main desktop.
 
 ## Repository layout
@@ -30,7 +36,7 @@
 | `src/MultiSeat` | Manager app (WinForms, admin): seats, pairing, start/stop, tray, settings, input router, session launcher |
 | `src/SeatAgent` | Runs in each player session (scheduled task at logon); injects routed input with SendInput |
 | `src/MultiSeat.Core` | Config model, authenticated UDP packet format, RDP file builder (unit-tested) |
-| `drivers/MultiSeatInput` | **KMDF keyboard/mouse class filter (prototype)** – compiles in CI (0 warnings) but never run yet; replaces Interception |
+| `drivers/MultiSeatInput` | **KMDF keyboard/mouse class filter (prototype)** – works in the test VM (list/watch/capture pass); MultiSeat uses it when installed, else Interception |
 | `tools/SeatProbe` | Reports what a session gets: console/remote, GPU, outputs, DWM fps, desktop duplication fps |
 | `tools/InputProbe` | Test tool for MultiSeatInput: `list`, `watch`, `capture <id>` |
 | `setup/Configure-MultiSeat.ps1` | Windows settings run by the installer |

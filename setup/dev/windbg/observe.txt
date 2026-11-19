@@ -1,0 +1,45 @@
+$$ MultiSeat test PC: kernel observation script (read-only, black box - rule 4).
+$$ Use: attach WinDbg/kd to the test PC, break in (Ctrl+Break), then:
+$$   $$<C:\path\to\setup\dev\windbg\observe.txt
+$$ Run it once on a clean Windows (baseline) and once with ASTER running, then compare the logs.
+$$ Change the log file name below for each run.
+
+.logopen /t C:\MultiSeatDev\observations\kernel.log
+.symfix
+.reload /f
+
+$$ ---- Windows build and loaded modules (new or unusual drivers stand out)
+vertarget
+lm t n
+
+$$ ---- Are Windows kernel images changed in memory? (0 errors expected on a clean system)
+!chkimg -d -lo 50 nt
+!chkimg -d -lo 50 dxgkrnl
+!chkimg -d -lo 50 dxgmms2
+!chkimg -d -lo 50 cdd
+!chkimg -d -lo 50 kbdclass
+!chkimg -d -lo 50 mouclass
+
+$$ ---- win32k lives in session space: switch into a process of each session first.
+$$ Find csrss.exe of each session, then for every one run (replace <EPROCESS>):
+$$   .process /p /r <EPROCESS>
+$$   !chkimg -d -lo 50 win32k
+$$   !chkimg -d -lo 50 win32kbase
+$$   !chkimg -d -lo 50 win32kfull
+!process 0 0 csrss.exe
+!process 0 0 dwm.exe
+
+$$ ---- Sessions
+!session
+
+$$ ---- Driver objects of the display and input stacks (who sits on top of whom)
+!drvobj \Driver\kbdclass 2
+!drvobj \Driver\mouclass 2
+!object \Driver
+
+$$ ---- Process / thread / image notify callbacks registered by drivers
+dps nt!PspCreateProcessNotifyRoutine L40
+dps nt!PspCreateThreadNotifyRoutine L40
+dps nt!PspLoadImageNotifyRoutine L40
+
+.logclose
