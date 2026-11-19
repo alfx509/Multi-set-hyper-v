@@ -49,6 +49,14 @@ Copy-Item -Force $source $dll
 & regsvr32.exe /s $dll
 if ($LASTEXITCODE -ne 0) { throw "regsvr32 failed ($LASTEXITCODE)" }
 
+# With Remote Desktop off (fDenyTSConnections = 1, the Server default) TermService starts no listeners,
+# ours included. Test VM only: turn it on.
+$ts = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
+if ((Get-ItemProperty $ts).fDenyTSConnections -ne 0) {
+    Set-ItemProperty $ts -Name fDenyTSConnections -Value 0
+    Write-Host '  Remote Desktop turned on (fDenyTSConnections = 0) so listeners start.'
+}
+
 New-Item -Path $listenerKey -Force | Out-Null
 New-ItemProperty -Path $listenerKey -Name LoadableProtocol_Object -Value $clsid -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $listenerKey -Name fEnableWinStation -Value 1 -PropertyType DWord -Force | Out-Null
