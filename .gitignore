@@ -4,3 +4,7 @@ out/
 .vs/
 *.user
 third_party/
+
+# Research notes and reports (local)
+research_notes/
+reports/
