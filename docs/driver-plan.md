@@ -144,6 +144,20 @@ Observed order: `QueryInterface(IWRdsWddmIddProps)` → `EnableWddmIdd(1)` → `
 **`GetHardwareId`** (Windows asks which remote IDD to load) → LSM: "connect message to video subsystem failed
 0xD0000001" → session disconnected (expected: no driver with that hardware id yet → B2).
 
+**B2 result (2026-11-19): PASS – Windows loads our third-party remote IDD into the seat session.**
+`drivers/MultiSeatRemoteIdd` (IddSample + `IDDCX_ADAPTER_FLAGS_REMOTE_SESSION_DRIVER | USE_SMALLEST_MODE`, one
+2560x1440 @ 144 Hz monitor, `IddCxAdapterDisplayConfigUpdate`, frame counter in `idd.log`). What it took:
+1. Hardware id **without a backslash** (`MultiSeatRemoteIdd`): Windows creates
+   `SWD\RemoteDisplayEnum\MultiSeatRemoteIdd&SessionId_<n>` (like RDP's `RdpIdd_IndirectDisplay`); `Root\...` failed silently.
+2. Implement **`IWRdsWddmIddProps1`** too. Without it: `PreDisconnect(18)` = `ERRINFO_CLOSE_STACK_ON_DRIVER_IFACE_FAILURE`
+   right after the adapter starts; with it Windows calls `OnDriverLoad(session, device path)`.
+3. A stub `IWRdsProtocolShadowConnection` (harmless; kept).
+
+Observed: `IddCxAdapterInitAsync(remote) = 0` → monitor arrival → config update OK → `CommitModes 2560x1440 @ 144 active`
+→ `AssignSwapChain` → frames arrive (sign-in screen: 4 frames, then 0 while nothing moves) → session stayed up 31 s,
+then `PreDisconnect(12)` (probably the sign-in screen timing out with no input – B4).
+Next (B3): make something move inside the seat session and read the fps in `idd.log`.
+
 Questions to answer with measurements before writing the display driver:
 
 1. **What does a player session get today?** Run `tools/SeatProbe` in the console session and in a

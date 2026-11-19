@@ -31,7 +31,7 @@ static const wchar_t* const kConnectEvent = L"Global\\MultiSeatLocalConnect";
 static const wchar_t* const kLogDir = L"C:\\ProgramData\\MultiSeat";
 static const wchar_t* const kLogFile = L"C:\\ProgramData\\MultiSeat\\protocol.log";
 // Hardware id of the (future, B2) remote IDD; logged now so we see whether Windows asks for it.
-static const wchar_t* const kIddHardwareId = L"Root\\MultiSeatRemoteIdd";
+static const wchar_t* const kIddHardwareId = L"MultiSeatRemoteIdd";   // no backslash: Windows makes SWD\REMOTEDISPLAYENUM\<id>&SESSIONID_n
 
 static HMODULE g_module;
 static std::atomic<long> g_objects{ 0 };
@@ -206,9 +206,59 @@ private:
     ULONG _seat;
 };
 
+// ------------------------------------------------------------------ shadow connection (stub)
+//
+// B2: returning E_NOTIMPL from GetShadowConnection was followed at once by PreDisconnect(18). This object
+// exists so the service gets one; actual shadowing (an admin watching the seat) is not supported.
+
+class ShadowConnection final : public IWRdsProtocolShadowConnection, public RefCounted<ShadowConnection>
+{
+public:
+    explicit ShadowConnection(ULONG seat) : _seat(seat) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (!ppv) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == __uuidof(IWRdsProtocolShadowConnection)) {
+            *ppv = static_cast<IWRdsProtocolShadowConnection*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    STDMETHODIMP_(ULONG) AddRef() override { return AddRefImpl(); }
+    STDMETHODIMP_(ULONG) Release() override { return ReleaseImpl(); }
+
+    STDMETHODIMP Start(WCHAR*, DWORD target, BYTE, USHORT, IWRdsProtocolShadowCallback*) override
+    {
+        Log(L"Shadow[%lu] Start(target session %lu) -> E_NOTIMPL", _seat, target);
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP Stop() override
+    {
+        Log(L"Shadow[%lu] Stop", _seat);
+        return S_OK;
+    }
+
+    STDMETHODIMP DoTarget(PBYTE, DWORD, PBYTE, DWORD, PBYTE, DWORD, PBYTE, DWORD, WCHAR*) override
+    {
+        Log(L"Shadow[%lu] DoTarget -> E_NOTIMPL", _seat);
+        return E_NOTIMPL;
+    }
+
+private:
+    ULONG _seat;
+};
+
 // ------------------------------------------------------------------ connection (one per seat)
 
-class Connection final : public IWRdsProtocolConnection, public IWRdsWddmIddProps, public RefCounted<Connection>
+class Connection final : public IWRdsProtocolConnection, public IWRdsWddmIddProps, public IWRdsWddmIddProps1,
+                         public RefCounted<Connection>
 {
 public:
     explicit Connection(ULONG seat) : _seat(seat) { Log(L"Connection[%lu] created", _seat); }
@@ -240,6 +290,9 @@ public:
         } else if (riid == __uuidof(IWRdsWddmIddProps)) {
             Log(L"Connection[%lu] QueryInterface(IWRdsWddmIddProps) -> yes", _seat);
             *ppv = static_cast<IWRdsWddmIddProps*>(this);
+        } else if (riid == __uuidof(IWRdsWddmIddProps1)) {
+            Log(L"Connection[%lu] QueryInterface(IWRdsWddmIddProps1) -> yes", _seat);
+            *ppv = static_cast<IWRdsWddmIddProps1*>(this);
         } else {
             wchar_t text[40];
             GuidText(riid, text);
@@ -487,11 +540,12 @@ public:
 
     STDMETHODIMP GetShadowConnection(IWRdsProtocolShadowConnection** shadow) override
     {
-        Log(L"Connection[%lu] GetShadowConnection -> E_NOTIMPL", _seat);
-        if (shadow) {
-            *shadow = nullptr;
+        if (!shadow) {
+            return E_POINTER;
         }
-        return E_NOTIMPL;
+        *shadow = new (std::nothrow) ShadowConnection(_seat);   // one reference, owned by the caller
+        Log(L"Connection[%lu] GetShadowConnection -> stub object", _seat);
+        return *shadow ? S_OK : E_OUTOFMEMORY;
     }
 
     STDMETHODIMP NotifyCommandProcessCreated(ULONG sessionId) override
@@ -521,6 +575,15 @@ public:
         if (driverHandle) {
             CloseHandle(reinterpret_cast<HANDLE>(driverHandle)); // we own it; nothing to talk to yet
         }
+        return S_OK;
+    }
+
+    // IWRdsWddmIddProps1 (newer): Windows passes the device instance instead of an opened handle.
+    // GetHardwareId and OnDriverUnload have the same signature in both interfaces and are shared.
+    STDMETHODIMP OnDriverLoad(ULONG sessionId, LPCWSTR deviceInstance) override
+    {
+        Log(L"Connection[%lu] OnDriverLoad1(session %lu, device %s)", _seat, sessionId,
+            deviceInstance ? deviceInstance : L"(null)");
         return S_OK;
     }
 

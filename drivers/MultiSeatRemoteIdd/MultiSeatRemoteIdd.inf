@@ -1,0 +1,78 @@
+;
+; MultiSeatRemoteIdd.inf - remote indirect display driver for MultiSeat Local seats (Phase 2, B2).
+; Based on Microsoft's IddSampleDriver (MS-PL, see LICENSE-MS-PL.txt).
+;
+; The MultiSeat Local protocol provider returns the hardware id MultiSeatRemoteIdd from
+; IWRdsWddmIddProps::GetHardwareId; Remote Desktop Services then creates SWD\REMOTEDISPLAYENUM\MULTISEATREMOTEIDD&SESSIONID_n for the
+; seat's session and PnP loads this driver for it.
+; TEST VM ONLY (test-signed).
+;
+
+[Version]
+PnpLockDown=1
+Signature="$Windows NT$"
+ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+Class=Display
+ClassVer=2.0
+Provider=%ManufacturerName%
+CatalogFile=MultiSeatRemoteIdd.cat
+DriverVer=
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$.10.0...22000
+
+[Standard.NT$ARCH$.10.0...22000]
+%DeviceName%=MyDevice_Install, MultiSeatRemoteIdd
+
+[SourceDisksFiles]
+MultiSeatRemoteIdd.dll=1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+; =================== UMDF Device ==================================
+
+[MyDevice_Install.NT]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT
+CopyFiles=UMDriverCopy
+
+[MyDevice_Install.NT.hw]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.HW
+AddReg = MyDevice_HardwareDeviceSettings
+
+[MyDevice_HardwareDeviceSettings]
+HKR,, "UpperFilters",  %REG_MULTI_SZ%, "IndirectKmd"
+; Remote IDDs: no DeviceGroupId (Microsoft recommends one host process per session).
+
+[MyDevice_Install.NT.Services]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.Services
+
+[MyDevice_Install.NT.Wdf]
+UmdfService=MultiSeatRemoteIdd,MultiSeatRemoteIdd_Install
+UmdfServiceOrder=MultiSeatRemoteIdd
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfHostProcessSharing = ProcessSharingDisabled
+
+[MultiSeatRemoteIdd_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary=%12%\UMDF\MultiSeatRemoteIdd.dll
+UmdfExtensions = IddCx0102
+
+[DestinationDirs]
+UMDriverCopy=12,UMDF ; copy to drivers\umdf
+
+[UMDriverCopy]
+MultiSeatRemoteIdd.dll
+
+; =================== Generic ==================================
+
+[Strings]
+ManufacturerName="MultiSeat (test)"
+DiskName = "MultiSeat Remote IDD Installation Disk"
+DeviceName="MultiSeat Seat Display"
+
+REG_MULTI_SZ  = 0x00010000
+REG_SZ        = 0x00000000
