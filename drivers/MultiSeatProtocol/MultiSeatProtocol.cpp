@@ -79,7 +79,9 @@ static void CopyText(wchar_t (&dst)[N], const wchar_t* src)
     wcsncpy_s(dst, N, src ? src : L"", _TRUNCATE);
 }
 
-// Who may use the listener: SYSTEM and Administrators everything, signed-in users log on and connect.
+// Who may use the listener and its sessions, in WINSTATION_* rights (generic rights like GA are NOT mapped:
+// with GA nobody could query the seat session, WTS hid it and explorer crashed). SYSTEM/Administrators all
+// (0xF03FF); signed-in users QUERY|VIRTUAL|LOGON|LOGOFF|MSGBOX|CONNECT|DISCONNECT (0x3E9).
 // An empty descriptor makes OnConnected fail with ERROR_UNKNOWN_REVISION (found in B1).
 // Returned in CoTaskMemAlloc memory (the caller frees it).
 static bool MakeListenerSecurity(PBYTE* descriptor, ULONG* size)
@@ -89,7 +91,7 @@ static bool MakeListenerSecurity(PBYTE* descriptor, ULONG* size)
     PSECURITY_DESCRIPTOR sd = nullptr;
     ULONG length = 0;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"O:SYG:SYD:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;AU)(A;;GA;;;IU)", SDDL_REVISION_1, &sd, &length)) {
+            L"O:SYG:SYD:(A;;0xF03FF;;;SY)(A;;0xF03FF;;;BA)(A;;0x3E9;;;AU)(A;;0x3E9;;;IU)", SDDL_REVISION_1, &sd, &length)) {
         return false;
     }
     *descriptor = static_cast<PBYTE>(CoTaskMemAlloc(length));

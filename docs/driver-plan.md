@@ -229,6 +229,17 @@ same on a second sign-in. Our seat sessions are **not listed by `qwinsta`/`logof
 allowed two seat sessions for the same user. Suspects: session properties the provider does not answer
 (`QueryProperty` 846B20BB…, 2918DB60…, 9EAA04F6… → `E_NOTIMPL`), session not visible to WTS, locale/language data.
 
+**Explorer crash fixed (2026-11-20): wrong listener permissions.** The listener security descriptor used generic rights
+(`GA`). Windows stores them unmapped for WinStations, so nobody had `WINSTATION_QUERY`: `WTSEnumerateSessions` hid the
+listener and the seat sessions, `WTSQuerySessionInformation` returned access denied, and the taskbar threw while
+starting. With explicit rights (SYSTEM/Administrators `0xF03FF`, users `0x3E9`) the seat is a normal session
+(`qwinsta`: `multiseat-local#1  seat1  3  Active`), explorer runs with 0 crashes, and the seat shows the user's
+first-run screen:
+
+![Signed-in seat session showing Windows first-run privacy screen](images/b4-seat-signed-in-first-run.png)
+
+(Test script fix: one scheduled task per step – a still-running task ignores a second `/Run`.)
+
 Open: route the
 seat's captured keyboard/mouse (MultiSeatInput) to an input agent in that session. Later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).

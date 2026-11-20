@@ -17,10 +17,14 @@ $secret = "$data\testuser-seat1.txt"
 Remove-Item "$data\idd.log", "$data\spinner.log", "$data\signin-*.bmp", "$data\seat.bmp", "$data\snap.request" -ErrorAction SilentlyContinue
 $before = (Get-Content "$data\protocol.log" -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
 
+# One task per step: a task that is still running ignores a second /Run (that silently skipped the sign-in once).
 function Start-InSeat([string]$arguments) {
-    schtasks /Create /TN MultiSeatSeatTool /RU SYSTEM /SC ONCE /ST 23:59 /F /TR "`"$tool`" launch $session $arguments" 2>&1 | Out-Null
-    schtasks /Run /TN MultiSeatSeatTool | Out-Null
+    $name = "MultiSeatSeatTool-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    schtasks /Create /TN $name /RU SYSTEM /SC ONCE /ST 23:59 /F /TR "`"$tool`" launch $session $arguments" 2>&1 | Out-Null
+    schtasks /Run /TN $name | Out-Null
+    $script:tasks += $name
 }
+$script:tasks = @()
 
 # A still screen sends no frames: "nudge" moves the seat's mouse 1 px so the next frame can be saved.
 function Save-Snapshot([string]$name, [int]$waitMs = 6000) {
@@ -53,7 +57,7 @@ qwinsta
 
 while (((Get-Date) - $start).TotalSeconds -lt $WatchSeconds) { Start-Sleep -Seconds 2 }
 Save-Snapshot 'signin-3-later.bmp'
-schtasks /Delete /TN MultiSeatSeatTool /F 2>&1 | Out-Null
+foreach ($n in $script:tasks) { schtasks /Delete /TN $n /F 2>&1 | Out-Null }
 Write-Host "---- sessions after $WatchSeconds s" -ForegroundColor Cyan
 qwinsta
 
