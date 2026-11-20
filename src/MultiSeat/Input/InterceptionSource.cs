@@ -89,5 +89,13 @@ internal sealed class InterceptionSource : IInputSource
 
     public string? HardwareId(int device) => Interception.GetHardwareId(_context, device);
 
+    /// <summary>Interception: slots 1-10 keyboards, 11-20 mice; a slot with a hardware id has a device.</summary>
+    public IReadOnlyList<MultiSeat.Core.InputDevice> Devices() =>
+        Enumerable.Range(1, 20)
+            .Select(slot => (slot, id: HardwareId(slot)))
+            .Where(x => !string.IsNullOrEmpty(x.id))
+            .Select(x => new MultiSeat.Core.InputDevice(x.slot, x.id!))
+            .ToList();
+
     public void Dispose() => Interception.DestroyContext(_context); // every device goes back to Windows
 }

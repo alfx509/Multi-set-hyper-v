@@ -22,6 +22,9 @@ internal sealed class MainForm : Form
         GridLines = true,
     };
 
+    private readonly WorkplacesView _places = new() { Dock = DockStyle.Fill };
+    private readonly TabControl _views = new() { Dock = DockStyle.Fill };
+
     private readonly TextBox _log = new()
     {
         Multiline = true,
@@ -67,8 +70,8 @@ internal sealed class MainForm : Form
         Icon = AppIcon.Get();
         // Start hidden in the tray only once MultiSeat has been set up (the very first start always shows the window).
         _startHidden = autoStarted && _config.StartMinimized && File.Exists(AppPaths.Config);
-        ClientSize = new Size(1180, 640);
-        MinimumSize = new Size(900, 480);
+        ClientSize = new Size(1180, 780);
+        MinimumSize = new Size(900, 560);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9.5f);
         _boldFont = new Font(Font, FontStyle.Bold);
@@ -149,9 +152,18 @@ internal sealed class MainForm : Form
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
         toolbar.Controls.AddRange(new Control[] { _start, _stop, Gap(), _add, _assign, _edit, _remove, Gap(), _identify, _check, _settings });
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 360 };
-        split.Panel1.Controls.Add(_list);
+        // Workplaces: one card per player, drag devices between places and Spares. List: the same seats as a table.
+        var placesTab = new TabPage("Workplaces");
+        placesTab.Controls.Add(_places);
+        var listTab = new TabPage("List");
+        listTab.Controls.Add(_list);
+        _views.TabPages.Add(placesTab);
+        _views.TabPages.Add(listTab);
+
+        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
+        split.Panel1.Controls.Add(_views);
         split.Panel2.Controls.Add(_log);
+        Shown += (_, _) => split.SplitterDistance = Math.Max(200, split.Height - LogicalToDeviceUnits(150));
 
         var status = new StatusStrip();
         status.Items.Add(_summary);
@@ -185,6 +197,7 @@ internal sealed class MainForm : Form
             rowMenu.Items[5].Enabled = !_running && !seat.IsConsole;
         };
         _list.ContextMenuStrip = rowMenu;
+        _places.CardMenu = rowMenu;
 
         var trayMenu = new ContextMenuStrip();
         trayMenu.Items.Add("Show MultiSeat", null, (_, _) => ShowFromTray());
@@ -211,7 +224,19 @@ internal sealed class MainForm : Form
         _check.Click += (_, _) => ShowChecks(HostCheck.Run(_config), always: true);
         _settings.Click += (_, _) => OpenSettings();
         _list.DoubleClick += (_, _) => EditSelected();
-        _list.SelectedIndexChanged += (_, _) => UpdateButtons();
+        _list.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateButtons();
+            _places.SelectSeat(Selected);
+        };
+        _places.SeatSelected += SelectSeat;
+        _places.SeatActivated += seat =>
+        {
+            SelectSeat(seat);
+            EditSelected();
+        };
+        _places.AddRequested += AddSeat;
+        _places.Dropped += OnPlaceDrop;
         _list.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Delete)
@@ -294,6 +319,7 @@ internal sealed class MainForm : Form
         }
 
         _list.EndUpdate();
+        RefreshPlaces();
         UpdateStatuses();
         UpdateButtons();
     }
@@ -355,6 +381,8 @@ internal sealed class MainForm : Form
                     cell.ForeColor = color;
                     cell.Font = text.StartsWith('●') ? _boldFont : _list.Font;
                 }
+
+                _places.SetStatus(seat, text, PlaceStateOf(seat, text));
             }
         }
 
@@ -375,6 +403,117 @@ internal sealed class MainForm : Form
         _remove.Enabled = idle && seat is { IsConsole: false };
         _start.Enabled = idle;
         _stop.Enabled = _running;
+        _places.Locked = !idle;
+    }
+
+    // ------------------------------------------------------------------ workplaces view
+
+    private void SelectSeat(Seat seat)
+    {
+        foreach (ListViewItem item in _list.Items)
+        {
+            item.Selected = ReferenceEquals(item.Tag, seat);
+        }
+    }
+
+    private PlaceState PlaceStateOf(Seat seat, string status)
+    {
+        if (_starting && !seat.IsConsole && !_sessions.ContainsKey(seat))
+        {
+            return PlaceState.Starting;
+        }
+
+        if (_running)
+        {
+            return seat.IsConsole || (_sessions.TryGetValue(seat, out var s) && s.IsRunning) ? PlaceState.Playing : PlaceState.Problem;
+        }
+
+        // Stopped: red when this seat still needs something (validation names it), else ready.
+        return _config.Validate().Any(p => p.StartsWith(seat.Name + ":", StringComparison.Ordinal)) || status.StartsWith('✖')
+            ? PlaceState.Problem
+            : PlaceState.Stopped;
+    }
+
+    private void RefreshPlaces()
+    {
+        var monitors = Monitors.All().Select((s, i) => new MonitorInfo(s.DeviceName, i + 1, Monitors.Describe(s, i))).ToList();
+        var used = _config.Seats.Where(s => !s.IsConsole)
+            .SelectMany(s => new[] { s.Keyboard?.Slot, s.Mouse?.Slot })
+            .Where(slot => slot is not null)
+            .ToHashSet();
+        var spares = (_router?.Devices() ?? Array.Empty<InputDevice>()).Where(d => !used.Contains(d.Slot)).ToList();
+        _places.Locked = _running || _starting;
+        _places.SetData(_config.Seats, spares, monitors, _config.SessionMode == SessionMode.Local,
+            canAdd: !_running && !_starting && _config.Seats.Count < MultiSeatConfig.MaxSeats);
+        _places.SelectSeat(Selected);
+    }
+
+    /// <summary>A monitor, keyboard or mouse was dragged onto a place (or back to Spares). Two places swap.</summary>
+    private void OnPlaceDrop(DragItem item, Seat? target)
+    {
+        if (_running || _starting || ReferenceEquals(item.From, target))
+        {
+            return;
+        }
+
+        var from = item.From;
+        string what;
+        switch (item.Kind)
+        {
+            case ChipKind.Monitor:
+                if (from is not null)
+                {
+                    from.Monitor = target?.Monitor; // swap with the place it goes to
+                }
+
+                if (target is not null)
+                {
+                    target.Monitor = item.MonitorId;
+                }
+
+                what = Monitors.Describe(item.MonitorId);
+                break;
+
+            case ChipKind.Keyboard:
+                if (from is not null)
+                {
+                    from.Keyboard = target?.Keyboard;
+                }
+
+                if (target is not null)
+                {
+                    target.Keyboard = item.Device;
+                }
+
+                what = item.Device?.Description ?? "keyboard";
+                break;
+
+            case ChipKind.Mouse:
+                if (from is not null)
+                {
+                    from.Mouse = target?.Mouse;
+                }
+
+                if (target is not null)
+                {
+                    target.Mouse = item.Device;
+                }
+
+                what = item.Device?.Description ?? "mouse";
+                break;
+
+            default:
+                return;
+        }
+
+        Log(target is null ? $"{from?.Name}: {what} is now spare." : $"{target.Name}: gets {what}.");
+        _config.Normalize();
+        SaveConfig();
+        RefreshList();
+        if (target is not null)
+        {
+            SelectSeat(target);
+        }
     }
 
     // ------------------------------------------------------------------ editing

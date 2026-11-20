@@ -35,4 +35,7 @@ internal interface IInputSource : IDisposable
     bool IsKeyboard(int device);
 
     string? HardwareId(int device);
+
+    /// <summary>Keyboards and mice connected now (for the Workplaces view's spares).</summary>
+    IReadOnlyList<MultiSeat.Core.InputDevice> Devices();
 }

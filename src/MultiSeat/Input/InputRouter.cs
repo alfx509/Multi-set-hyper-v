@@ -66,6 +66,8 @@ internal sealed class InputRouter : IDisposable
 
     public string? HardwareId(int slot) => _source.HardwareId(slot);
 
+    public IReadOnlyList<InputDevice> Devices() => _source.Devices();
+
     /// <summary>Route the given seats' devices to their agents. Replaces any previous routing.</summary>
     public void SetRoutes(IEnumerable<SeatChannel> channels)
     {

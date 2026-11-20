@@ -158,6 +158,17 @@ internal sealed class DriverInputSource : IInputSource
 
     public string? HardwareId(int device) => Lookup(device)?.HardwareId;
 
+    public IReadOnlyList<MultiSeat.Core.InputDevice> Devices()
+    {
+        RefreshDevices();
+        lock (_devicesGate)
+        {
+            return _devices.OrderBy(d => d.Key)
+                .Select(d => new MultiSeat.Core.InputDevice(SlotBase + d.Key, d.Value.HardwareId, d.Value.Keyboard))
+                .ToList();
+        }
+    }
+
     private (bool Keyboard, int Mode, string HardwareId)? Lookup(int device)
     {
         var id = device - SlotBase;

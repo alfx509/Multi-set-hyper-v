@@ -37,6 +37,14 @@ Open **MultiSeat** (desktop icon).
    a key on **their** keyboard and clicks **their** mouse. (Esc skips.)
 5. Click **✔ Check this PC**. Fix anything marked ✖.
 
+The **Workplaces** tab shows one card per player ("Place 1", "Place 2", …) with its monitor number, keyboard,
+mouse and headset. Green = playing, yellow = ready, red = something is missing. Everything not given to a place is
+in **Spares**: drag a monitor, keyboard or mouse onto a place to give it to that player (dropping on another
+player's place swaps them), or drag it back to Spares. Double-click a place to edit it (user, headset). The
+**List** tab shows the same as a table.
+
+![Workplaces tab](images/workplaces.png)
+
 ## 6. Play
 
 Press **▶ Start**. After a few seconds each player sees their own desktop on their monitor.
