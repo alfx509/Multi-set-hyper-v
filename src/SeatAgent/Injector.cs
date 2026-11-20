@@ -12,6 +12,18 @@ internal sealed class Injector
 
     public bool HasPressed => _keys.Count > 0 || _buttons.Count > 0;
 
+    /// <summary>Events Windows accepted / refused since the last <see cref="TakeCounts"/> (counts only, never keys).</summary>
+    public (long Sent, long Failed, int LastError) TakeCounts()
+    {
+        var r = (_sent, _failed, _lastError);
+        _sent = _failed = 0;
+        return r;
+    }
+
+    private long _sent;
+    private long _failed;
+    private int _lastError;
+
     public void Apply(in InputEvent e)
     {
         switch (e.Type)
@@ -72,7 +84,20 @@ internal sealed class Injector
             Type = InputKeyboard,
             Data = new InputUnion { Keyboard = new KeyboardInput { ScanCode = scanCode, Flags = native } },
         };
-        SendInput(1, _one, InputSize);
+        Send();
+    }
+
+    private void Send()
+    {
+        if (SendInput(1, _one, InputSize) == 1)
+        {
+            _sent++;
+        }
+        else
+        {
+            _failed++;
+            _lastError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+        }
     }
 
     private void Button(MouseButton button, bool released)
@@ -109,6 +134,6 @@ internal sealed class Injector
             Type = InputMouse,
             Data = new InputUnion { Mouse = new MouseInput { Dx = dx, Dy = dy, MouseData = data, Flags = flags } },
         };
-        SendInput(1, _one, InputSize);
+        Send();
     }
 }

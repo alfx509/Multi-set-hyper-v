@@ -14,12 +14,23 @@
     Writes C:\ProgramData\MultiSeat\route.ready when routing has started. Snapshot: route-after.bmp
 #>
 [CmdletBinding()]
-param([int]$Seconds = 90, [int]$Port = 27101)
+param([int]$Seconds = 90, [int]$Port = 27101, [int]$SnapAfter = 15)
 
 $ErrorActionPreference = 'Stop'
 $data = 'C:\ProgramData\MultiSeat'
 $dev = 'C:\MultiSeatDev'
 Remove-Item "$data\route.ready", "$data\route.log", "$data\route-*.bmp", "$data\seat.bmp", "$data\snap.request", "$data\agent-s*.log" -ErrorAction SilentlyContinue
+
+# 0. sign out old seat sessions (test VM: every session except services/console; only the test seat may
+#    answer the snapshot request)
+$console = (Get-Process -Id $PID).SessionId
+foreach ($line in (qwinsta 2>$null | Select-Object -Skip 1)) {
+    $id = ($line -split '\s+' | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1)
+    if ($id -and [int]$id -gt 1 -and [int]$id -lt 65536 -and [int]$id -ne $console) {
+        "Signing out old session $id"; logoff $id
+    }
+}
+Start-Sleep -Seconds 3
 
 # 1. agent settings
 $agents = "$data\agents"; New-Item -ItemType Directory -Force $agents | Out-Null
@@ -56,7 +67,7 @@ $probe = Start-Process "$dev\InputProbe\InputProbe.exe" -ArgumentList "route $id
 Set-Content "$data\route.ready" $session
 
 # 4. wait, then take a snapshot while routing is still on
-Start-Sleep -Seconds ($Seconds - 8)
+Start-Sleep -Seconds $SnapAfter
 Set-Content "$data\snap.request" 'x'
 for ($i = 0; $i -lt 60 -and (Test-Path "$data\snap.request"); $i++) { Start-Sleep -Milliseconds 100 }
 if (Test-Path "$data\seat.bmp") { Move-Item "$data\seat.bmp" "$data\route-after.bmp" -Force; 'snapshot -> route-after.bmp' }

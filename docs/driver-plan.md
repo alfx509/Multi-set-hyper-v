@@ -240,8 +240,22 @@ first-run screen:
 
 (Test script fix: one scheduled task per step – a still-running task ignores a second `/Run`.)
 
-Open: route the
-seat's captured keyboard/mouse (MultiSeatInput) to an input agent in that session. Later, more native: feed the
+**B4 input routing result (2026-11-20): a real keyboard, captured by MultiSeatInput, types on the seat.**
+`setup/dev/Test-SeatInputRoute.ps1`: signs out old seat sessions, connects a new seat, starts
+`SeatAgent --seat <settings.json>` as SYSTEM inside the seat session (SeatSpinner `run`), then
+`InputProbe route <id> <settings> <s>` captures the VM's VMBus keyboard and sends each key to the agent
+(authenticated UDP, same packets as the manager). The agent follows the input desktop (`Winlogon` before
+sign-in) and injects with SendInput. Keys pressed on the VM keyboard from the host (Hyper-V `Msvm_Keyboard.TypeKey`,
+real scan codes) did **not** reach the console and appeared in the seat's user name box. Agent log:
+`Injected 8 event(s) on Winlogon.` (counts only – keys are never logged).
+
+![Seat sign-in screen: "seat" typed on the VM keyboard, routed by MultiSeatInput + SeatAgent](images/b4-seat-input-routed.png)
+
+Test notes: `Msvm_Keyboard.TypeText` sends Unicode packets (scan code = character, e.g. 0x73 for "s"), which a
+real keyboard never sends – use `TypeKey`. Every seat's display driver answers the same snapshot request, so only
+the test seat may run. The idle sign-in screen closes after about 30 s, so the snapshot is taken early.
+
+Open: mouse routing test; start the agent automatically per seat (provider/manager); later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 
 Questions to answer with measurements before writing the display driver:

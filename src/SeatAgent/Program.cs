@@ -86,6 +86,16 @@ while (true)
             desktop.Follow(Log);
         }
 
+        if (now - lastPacket > 1000)
+        {
+            var (sent, failed, error) = injector.TakeCounts();
+            if (sent + failed > 0)
+            {
+                Log(failed == 0 ? $"Injected {sent} event(s) on {desktop.Name}."
+                                : $"Injected {sent} event(s) on {desktop.Name}; {failed} refused (error {error}).");
+            }
+        }
+
         if (injector.HasPressed && now - lastPacket > settings.WatchdogMs)
         {
             injector.ReleaseAll(); // manager stopped or crashed: never leave keys held down
