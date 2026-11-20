@@ -264,7 +264,28 @@ The agent now writes its counts every 2 s, because the router's 500 ms heartbeat
 
 ![Seat sign-in screen after a routed click on "Sign-in options"](images/b4-seat-mouse-routed.png)
 
-Open: start the agent automatically per seat (provider/manager); later, more native: feed the
+**B4 agent auto-start result (2026-11-20): the "MultiSeat seat agents" service starts SeatAgent in every seat.**
+The provider runs in TermService as Network Service and cannot start programs in another session, so a small
+LocalSystem service does it: `src/SeatService` (C++, service `MultiSeatSeats`, installed by
+`setup/dev/Install-SeatService.ps1` into Program Files – Administrators-only, because a SYSTEM service must never
+run a program users can replace). Every second it finds `multiseat-local#N` sessions (active/connected), gives each
+the first free `agents\local-*.json` (one per seat: name, port, key) and starts
+`SeatAgent --seat <settings> --parent <service pid>` as SYSTEM on the seat's Winlogon desktop.
+Measured in the VM (`Test-SeatInputRoute.ps1 -ServiceAgent`):
+
+| Check | Result |
+|---|---|
+| New seat session | agent started within 1 s, keyboard routed, "seat" typed on the sign-in screen |
+| Seat session closed (sign-in timeout) | agent stopped, settings free again |
+| Agent killed | started again within 1 s (at most every 5 s) |
+| Service stopped | agents stopped; started again with the service |
+| Service process killed (crash) | agent exited at once; service recovery restarted the service and the agent |
+
+Fail-safe: agents are in a kill-on-close job when Windows allows it (it sometimes refuses a process in another
+session: error 5), and each agent also exits by itself when its `--parent` service is gone, releasing held keys.
+Seat ↔ settings is "first free file" for now; the manager will choose the seat when it connects seats.
+
+Open: the manager connects/disconnects seats and writes `local-*.json`; later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 
 Questions to answer with measurements before writing the display driver:

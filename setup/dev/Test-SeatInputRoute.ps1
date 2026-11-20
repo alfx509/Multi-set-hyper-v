@@ -14,7 +14,7 @@
     Writes C:\ProgramData\MultiSeat\route.ready when routing has started. Snapshot: route-after.bmp
 #>
 [CmdletBinding()]
-param([int]$Seconds = 90, [int]$Port = 27101, [int]$SnapAfter = 15, [ValidateSet('keyboard', 'mouse')][string]$Device = 'keyboard')
+param([int]$Seconds = 90, [int]$Port = 27101, [int]$SnapAfter = 15, [ValidateSet('keyboard', 'mouse')][string]$Device = 'keyboard', [switch]$ServiceAgent)
 
 $ErrorActionPreference = 'Stop'
 $data = 'C:\ProgramData\MultiSeat'
@@ -34,10 +34,16 @@ Start-Sleep -Seconds 3
 
 # 1. agent settings
 $agents = "$data\agents"; New-Item -ItemType Directory -Force $agents | Out-Null
-$settings = "$agents\seat-test.json"
-$key = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }) -as [byte[]])
-@{ seat = 'Seat test'; port = $Port; key = $key; watchdogMs = 2000 } | ConvertTo-Json | Set-Content $settings -Encoding ascii
-icacls $settings /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null
+if ($ServiceAgent) {
+    $settings = "$agents\local-1.json"
+    if (-not (Test-Path $settings)) { throw "$settings is missing (Install-SeatService.ps1 -TestSeat)." }
+}
+else {
+    $settings = "$agents\seat-test.json"
+    $key = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }) -as [byte[]])
+    @{ seat = 'Seat test'; port = $Port; key = $key; watchdogMs = 2000 } | ConvertTo-Json | Set-Content $settings -Encoding ascii
+    icacls $settings /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null
+}
 
 # 2. seat + agent
 $before = (Get-Content "$data\protocol.log" | Measure-Object -Line).Lines
@@ -50,12 +56,19 @@ for ($i = 0; $i -lt 40 -and -not $session; $i++) {
 }
 if (-not $session) { throw 'No seat session was created.' }
 "Seat session: $session"
-Start-Sleep -Seconds 3
 $task = "MultiSeatAgent-$session"
-schtasks /Create /TN $task /RU SYSTEM /SC ONCE /ST 23:59 /F /TR "`"$dev\spinner\SeatSpinner.exe`" run $session $dev\agent\SeatAgent.exe --seat $settings" 2>&1 | Out-Null
-schtasks /Run /TN $task | Out-Null
-Start-Sleep -Seconds 3
+if ($ServiceAgent) {
+    for ($i = 0; $i -lt 40 -and -not (Get-Process SeatAgent -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session); $i++) { Start-Sleep -Milliseconds 250 }
+    Start-Sleep -Seconds 1
+}
+else {
+    Start-Sleep -Seconds 3
+    schtasks /Create /TN $task /RU SYSTEM /SC ONCE /ST 23:59 /F /TR "`"$dev\spinner\SeatSpinner.exe`" run $session $dev\agent\SeatAgent.exe --seat $settings" 2>&1 | Out-Null
+    schtasks /Run /TN $task | Out-Null
+    Start-Sleep -Seconds 3
+}
 "Agent: " + ((Get-Process SeatAgent -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session | ForEach-Object { "pid $($_.Id) in session $($_.SessionId)" }) -join ', ')
+if ($ServiceAgent -and -not (Get-Process SeatAgent -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session)) { Get-Content "$data\seatsvc.log" -Tail 10; throw 'The service did not start an agent in the seat session.' }
 
 # 3. route the VM keyboard (VMBus) or mouse (Hyper-V HID mouse)
 $list = & "$dev\InputProbe\InputProbe.exe" list
@@ -73,8 +86,9 @@ Set-Content "$data\snap.request" 'x'
 for ($i = 0; $i -lt 60 -and (Test-Path "$data\snap.request"); $i++) { Start-Sleep -Milliseconds 100 }
 if (Test-Path "$data\seat.bmp") { Move-Item "$data\seat.bmp" "$data\route-after.bmp" -Force; 'snapshot -> route-after.bmp' }
 $probe.WaitForExit(($Seconds - $SnapAfter + 15) * 1000) | Out-Null
-schtasks /Delete /TN $task /F 2>&1 | Out-Null
+if (-not $ServiceAgent) { schtasks /Delete /TN $task /F 2>&1 | Out-Null }
 Remove-Item "$data\route.ready" -ErrorAction SilentlyContinue
 
 '---- route'; Get-Content "$data\route.log" -ErrorAction SilentlyContinue | Select-Object -First 3; Get-Content "$data\route.log" -ErrorAction SilentlyContinue | Select-Object -Last 1
 '---- agent'; Get-Content "$data\agent-s$session.log" -ErrorAction SilentlyContinue
+if ($ServiceAgent) { '---- service'; Get-Content "$data\seatsvc.log" -Tail 8 }

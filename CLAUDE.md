@@ -35,6 +35,7 @@
 |---|---|
 | `src/MultiSeat` | Manager app (WinForms, admin): seats, pairing, start/stop, tray, settings, input router, session launcher |
 | `src/SeatAgent` | Runs in each player session (scheduled task at logon); injects routed input with SendInput |
+| `src/SeatService` | C++ LocalSystem service `MultiSeatSeats`: starts `SeatAgent --seat` in every MultiSeat Local seat session (B4) |
 | `src/MultiSeat.Core` | Config model, authenticated UDP packet format, RDP file builder (unit-tested) |
 | `drivers/MultiSeatInput` | **KMDF keyboard/mouse class filter (prototype)** – works in the test VM (list/watch/capture pass); MultiSeat uses it when installed, else Interception |
 | `tools/SeatProbe` | Reports what a session gets: console/remote, GPU, outputs, DWM fps, desktop duplication fps |

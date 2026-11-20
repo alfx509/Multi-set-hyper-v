@@ -10,9 +10,22 @@ using MultiSeat.Core;
 // Seat mode (MultiSeat Local sessions): SeatAgent.exe --seat <settings.json>
 // started as SYSTEM inside the seat's session before anyone signs in; follows the input desktop
 // (sign-in screen -> user desktop) so the seat's keyboard/mouse work everywhere.
+// SeatService adds "--parent <its pid>": the agent exits (releasing held keys) when the service is gone.
 
 var seatMode = args.Length >= 2 && args[0] == "--seat";
 var settingsPath = seatMode ? args[1] : AgentSettings.PathFor(Environment.UserName);
+System.Diagnostics.Process? parent = null;
+if (seatMode && args.Length >= 4 && args[2] == "--parent")
+{
+    try
+    {
+        parent = System.Diagnostics.Process.GetProcessById(int.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture));
+    }
+    catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException)
+    {
+        return 0; // the service is already gone
+    }
+}
 if (!File.Exists(settingsPath))
 {
     return 0; // not a seat user (for example the main desktop user)
@@ -97,6 +110,13 @@ while (true)
         if (seatMode)
         {
             desktop.Follow(Log);
+        }
+
+        if (parent is { HasExited: true })
+        {
+            injector.ReleaseAll();
+            Log("The seat service is gone; exiting.");
+            return 0;
         }
 
         if (injector.HasPressed && now - lastPacket > settings.WatchdogMs)
