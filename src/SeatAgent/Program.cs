@@ -64,6 +64,7 @@ Log($"{settings.Seat}: listening on 127.0.0.1:{settings.Port}");
 
 var buffer = new byte[256];
 var lastPacket = Environment.TickCount64;
+var lastCount = lastPacket;
 long rejected = 0;
 
 while (true)
@@ -79,21 +80,23 @@ while (true)
     }
 
     var now = Environment.TickCount64;
+    if (now - lastCount >= 2000)
+    {
+        // Counts only, never keys. Every 2 s, because the manager's heartbeats keep the socket busy.
+        lastCount = now;
+        var (sent, failed, error) = injector.TakeCounts();
+        if (sent + failed > 0)
+        {
+            Log(failed == 0 ? $"Injected {sent} event(s) on {desktop.Name}."
+                            : $"Injected {sent} event(s) on {desktop.Name}; {failed} refused (error {error}).");
+        }
+    }
+
     if (length == 0)
     {
         if (seatMode)
         {
             desktop.Follow(Log);
-        }
-
-        if (now - lastPacket > 1000)
-        {
-            var (sent, failed, error) = injector.TakeCounts();
-            if (sent + failed > 0)
-            {
-                Log(failed == 0 ? $"Injected {sent} event(s) on {desktop.Name}."
-                                : $"Injected {sent} event(s) on {desktop.Name}; {failed} refused (error {error}).");
-            }
         }
 
         if (injector.HasPressed && now - lastPacket > settings.WatchdogMs)

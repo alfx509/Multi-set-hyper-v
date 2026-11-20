@@ -8,13 +8,13 @@
 .DESCRIPTION
     1. Agent settings with a random key: C:\ProgramData\MultiSeat\agents\seat-test.json (Administrators/SYSTEM only).
     2. Connects a seat, starts "SeatAgent --seat" in that session (SeatSpinner run).
-    3. Finds the VMBus keyboard and runs "InputProbe route <id> <settings> <seconds>".
+    3. Finds the VMBus keyboard (or, with -Device mouse, the Hyper-V mouse) and runs "InputProbe route <id> <settings> <seconds>".
     4. While it runs, type on the VM keyboard (host: Hyper-V Msvm_Keyboard.TypeText, or the VMConnect window
        in BASIC mode). The text should appear on the seat's sign-in screen, not on the console.
     Writes C:\ProgramData\MultiSeat\route.ready when routing has started. Snapshot: route-after.bmp
 #>
 [CmdletBinding()]
-param([int]$Seconds = 90, [int]$Port = 27101, [int]$SnapAfter = 15)
+param([int]$Seconds = 90, [int]$Port = 27101, [int]$SnapAfter = 15, [ValidateSet('keyboard', 'mouse')][string]$Device = 'keyboard')
 
 $ErrorActionPreference = 'Stop'
 $data = 'C:\ProgramData\MultiSeat'
@@ -57,12 +57,13 @@ schtasks /Run /TN $task | Out-Null
 Start-Sleep -Seconds 3
 "Agent: " + ((Get-Process SeatAgent -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session | ForEach-Object { "pid $($_.Id) in session $($_.SessionId)" }) -join ', ')
 
-# 3. route the VM keyboard
+# 3. route the VM keyboard (VMBus) or mouse (Hyper-V HID mouse)
 $list = & "$dev\InputProbe\InputProbe.exe" list
-$kbd = $list | Select-String 'id\s+(\d+)\s+keyboard\s+\S+\s+VMBUS' | Select-Object -First 1
-if (-not $kbd) { $list; throw 'VMBus keyboard not found.' }
-$id = $kbd.Matches[0].Groups[1].Value
-"Routing keyboard id $id for $Seconds s"
+$pattern = if ($Device -eq 'keyboard') { 'id\s+(\d+)\s+keyboard\s+\S+\s+VMBUS' } else { 'id\s+(\d+)\s+mouse\s' }
+$found = $list | Select-String $pattern | Select-Object -First 1
+if (-not $found) { $list; throw "VM $Device not found." }
+$id = $found.Matches[0].Groups[1].Value
+"Routing $Device id $id for $Seconds s"
 $probe = Start-Process "$dev\InputProbe\InputProbe.exe" -ArgumentList "route $id $settings $Seconds" -RedirectStandardOutput "$data\route.log" -PassThru -WindowStyle Hidden
 Set-Content "$data\route.ready" $session
 
@@ -71,7 +72,7 @@ Start-Sleep -Seconds $SnapAfter
 Set-Content "$data\snap.request" 'x'
 for ($i = 0; $i -lt 60 -and (Test-Path "$data\snap.request"); $i++) { Start-Sleep -Milliseconds 100 }
 if (Test-Path "$data\seat.bmp") { Move-Item "$data\seat.bmp" "$data\route-after.bmp" -Force; 'snapshot -> route-after.bmp' }
-$probe.WaitForExit(20000) | Out-Null
+$probe.WaitForExit(($Seconds - $SnapAfter + 15) * 1000) | Out-Null
 schtasks /Delete /TN $task /F 2>&1 | Out-Null
 Remove-Item "$data\route.ready" -ErrorAction SilentlyContinue
 

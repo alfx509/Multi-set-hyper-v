@@ -255,7 +255,16 @@ Test notes: `Msvm_Keyboard.TypeText` sends Unicode packets (scan code = characte
 real keyboard never sends – use `TypeKey`. Every seat's display driver answers the same snapshot request, so only
 the test seat may run. The idle sign-in screen closes after about 30 s, so the snapshot is taken early.
 
-Open: mouse routing test; start the agent automatically per seat (provider/manager); later, more native: feed the
+**B4 mouse routing result (2026-11-20): the captured mouse clicks on the seat.**
+`Test-SeatInputRoute.ps1 -Device mouse` routes the VM's Hyper-V HID mouse (absolute position). From the host,
+`Msvm_SyntheticMouse.SetAbsolutePosition` + `ClickButton` moved to "Sign-in options" and clicked: the seat opened
+its sign-in options (password / smart card icons), the console did not get the click. Agent log:
+`Injected 6 event(s) on Winlogon.` (absolute moves are scaled to the seat's own desktop size by SendInput).
+The agent now writes its counts every 2 s, because the router's 500 ms heartbeat keeps the socket busy.
+
+![Seat sign-in screen after a routed click on "Sign-in options"](images/b4-seat-mouse-routed.png)
+
+Open: start the agent automatically per seat (provider/manager); later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 
 Questions to answer with measurements before writing the display driver:
