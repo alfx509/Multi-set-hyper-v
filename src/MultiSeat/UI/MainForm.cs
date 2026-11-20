@@ -47,7 +47,7 @@ internal sealed class MainForm : Form
 
     private readonly MultiSeatConfig _config = LoadConfig();
     private readonly InputRouter? _router;
-    private readonly Dictionary<Seat, SeatSession> _sessions = new();
+    private readonly Dictionary<Seat, ISeatScreen> _sessions = new();
     private readonly Dictionary<Seat, SeatChannel> _channels = new();
     private readonly Dictionary<Seat, int> _reopenCount = new();
     private readonly CursorFence _fence = new();
@@ -253,8 +253,18 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void Log(string message) =>
+    private void Log(string message)
+    {
         _log.AppendText($"{DateTime.Now:HH:mm:ss}  {message}{Environment.NewLine}");
+        try
+        {
+            // Same lines in C:\ProgramData\MultiSeat\manager.log (support, tests).
+            File.AppendAllText(Path.Combine(AppPaths.Data, "manager.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message}{Environment.NewLine}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 
     private Seat? Selected => _list.SelectedItems.Count == 1 ? _list.SelectedItems[0].Tag as Seat : null;
 
@@ -401,7 +411,7 @@ internal sealed class MainForm : Form
 
     private bool EditSeat(Seat seat, bool isNew)
     {
-        using var form = new SeatForm(seat, _router);
+        using var form = new SeatForm(seat, _router, userOptional: _config.SessionMode == SessionMode.Local);
         if (form.ShowDialog(this) != DialogResult.OK)
         {
             return false;
@@ -586,6 +596,13 @@ internal sealed class MainForm : Form
             return;
         }
 
+        var local = _config.SessionMode == SessionMode.Local;
+        if (local && seats.Count > 0 && LocalSeatLauncher.Unavailable() is string missing)
+        {
+            MessageBox.Show(this, $"MultiSeat Local cannot start: {missing}.\nChoose \"Remote Desktop\" in Settings, or install the developer preview.", "MultiSeat");
+            return;
+        }
+
         // Devices can move to another slot after re-plugging; then they must be assigned again.
         var changed = seats
             .SelectMany(s => new[] { (s, s.Keyboard), (s, s.Mouse) })
@@ -611,16 +628,40 @@ internal sealed class MainForm : Form
 
         try
         {
+            if (local)
+            {
+                LocalSeatLauncher.WriteSettings(seats);
+            }
+
             foreach (var seat in seats)
             {
-                SecureFile.WriteAgentSettings(seat);
+                if (!local)
+                {
+                    SecureFile.WriteAgentSettings(seat);
+                }
+
                 _channels[seat] = new SeatChannel(seat);
             }
 
             _router?.SetRoutes(_channels.Values);
 
-            // Start all players' screens at the same time; signing in takes a few seconds each.
-            await Task.WhenAll(seats.Select(s => LaunchAsync(s)));
+            if (local)
+            {
+                // One at a time, in seat order: each new seat session takes the first free seat settings file.
+                foreach (var seat in seats)
+                {
+                    await LaunchAsync(seat);
+                }
+
+                Log("MultiSeat Local (experimental): players sign in on their own seat's sign-in screen. " +
+                    "Seat screens are not shown on monitors yet.");
+            }
+            else
+            {
+                // Start all players' screens at the same time; signing in takes a few seconds each.
+                await Task.WhenAll(seats.Select(s => LaunchAsync(s)));
+            }
+
             _running = true;
             if (_config.ConfineConsoleCursor && Monitors.Find(_config.Seats[0].Monitor) is null)
             {
@@ -639,8 +680,25 @@ internal sealed class MainForm : Form
         }
     }
 
-    private async Task LaunchAsync(Seat seat)
+    private async Task LaunchAsync(Seat seat, bool quiet = false)
     {
+        if (_config.SessionMode == SessionMode.Local)
+        {
+            var local = await LocalSeatLauncher.ConnectAsync(seat, m =>
+            {
+                if (!quiet || m.StartsWith('✖'))
+                {
+                    BeginInvoke(() => Log(m));
+                }
+            });
+            if (local is not null)
+            {
+                _sessions[seat] = local;
+            }
+
+            return;
+        }
+
         var screen = Monitors.Find(seat.Monitor);
         if (screen is null)
         {
@@ -660,7 +718,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    private async Task ReopenAsync(Seat seat, bool manual)
+    private async Task ReopenAsync(Seat seat, bool manual, bool quiet = false)
     {
         if (!_running || seat.IsConsole)
         {
@@ -672,8 +730,12 @@ internal sealed class MainForm : Form
             old.Close();
         }
 
-        Log(manual ? $"{seat.Name}: reopening the screen." : $"{seat.Name}: the screen closed – reopening it.");
-        await LaunchAsync(seat);
+        if (!quiet)
+        {
+            Log(manual ? $"{seat.Name}: reopening the screen." : $"{seat.Name}: the screen closed – reopening it.");
+        }
+
+        await LaunchAsync(seat, quiet);
     }
 
     private void Stop()
@@ -706,7 +768,8 @@ internal sealed class MainForm : Form
 
     private void SignOut(Seat seat)
     {
-        if (seat.IsConsole || seat.UserName is null)
+        var localSession = (_sessions.GetValueOrDefault(seat) as LocalSeatSession)?.SessionId;
+        if (seat.IsConsole || (seat.UserName is null && localSession is null))
         {
             return;
         }
@@ -722,7 +785,13 @@ internal sealed class MainForm : Form
             session.Close();
         }
 
-        Log($"{seat.Name}: signed out {WtsSessions.SignOut(seat.UserName)} session(s).");
+        var n = seat.UserName is null ? 0 : WtsSessions.SignOut(seat.UserName);
+        if (localSession is int id && WtsSessions.SignOutSession(id))
+        {
+            n++;
+        }
+
+        Log($"{seat.Name}: signed out {n} session(s).");
         UpdateStatuses();
     }
 
@@ -734,10 +803,20 @@ internal sealed class MainForm : Form
             return;
         }
 
+        // MultiSeat Local: the seats' sessions, whoever signed in there (read before Stop disconnects them).
+        var local = LocalSeatLauncher.ReadState();
         Stop();
         foreach (var seat in _config.Seats.Where(s => !s.IsConsole && s.UserName is not null))
         {
             Log($"{seat.Name}: signed out {WtsSessions.SignOut(seat.UserName!)} session(s).");
+        }
+
+        foreach (var (file, state) in local)
+        {
+            if (WtsSessions.SignOutSession(state.Session))
+            {
+                Log($"MultiSeat Local seat ({file}): signed out session {state.Session}.");
+            }
         }
     }
 
@@ -759,7 +838,12 @@ internal sealed class MainForm : Form
                 {
                     var count = _reopenCount.GetValueOrDefault(seat) + 1;
                     _reopenCount[seat] = count;
-                    if (count <= 5)
+                    if (_config.SessionMode == SessionMode.Local)
+                    {
+                        // An unused sign-in screen is closed by Windows after about 30 s: open it again, quietly.
+                        await ReopenAsync(seat, manual: false, quiet: count > 1);
+                    }
+                    else if (count <= 5)
                     {
                         await ReopenAsync(seat, manual: false);
                     }

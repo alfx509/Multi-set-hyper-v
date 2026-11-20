@@ -51,6 +51,9 @@ Player sessions = loopback RDP (mstsc to 127.0.0.x) on Windows Server, full scre
 Input: Interception driver → MultiSeat → UDP 127.0.0.1 (HMAC per seat) → SeatAgent → SendInput.
 Audio: per-app default device for each seat's mstsc copy (AudioPolicyConfig). Limits: RDP 60 fps cap.
 
+Experimental `SessionMode = Local` (Settings → Player sessions): MultiSeat Local provider + remote IDD +
+`MultiSeatSeats` service; seats get their own sign-in screen, input routed the same way; not shown on monitors yet.
+
 ## Build and test
 
 ```powershell

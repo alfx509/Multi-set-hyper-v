@@ -8,7 +8,7 @@ using MultiSeat.Host;
 namespace MultiSeat.Sessions;
 
 /// <summary>A running seat: its user's session shown full screen on its monitor.</summary>
-internal sealed class SeatSession
+internal sealed class SeatSession : ISeatScreen
 {
     public SeatSession(Seat seat, Process client)
     {

@@ -54,6 +54,14 @@ internal static class WtsSessions
         return n;
     }
 
+    /// <summary>Disconnects a session: its screen goes away, a signed-in player stays signed in.</summary>
+    public static bool Disconnect(int sessionId) => WTSDisconnectSession(IntPtr.Zero, sessionId, false);
+
+    public static bool SignOutSession(int sessionId) => WTSLogoffSession(IntPtr.Zero, sessionId, false);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSDisconnectSession(IntPtr server, int sessionId, bool wait);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct SessionInfo
     {

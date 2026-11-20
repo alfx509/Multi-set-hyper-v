@@ -18,6 +18,8 @@
 //     AgentPath    REG_SZ  default: SeatAgent.exe next to SeatService.exe
 //     SettingsDir  REG_SZ  default: C:\ProgramData\MultiSeat\agents
 // Log: C:\ProgramData\MultiSeat\seatsvc.log
+// State for the MultiSeat manager: <SettingsDir>\state.txt, one line per seat session:
+//     local-01.json <session id> <agent pid, 0 = not running>
 //
 // SeatService.exe console   runs the same loop in a console window (tests; Ctrl+C stops).
 
@@ -116,6 +118,8 @@ public:
         for (auto& [session, seat] : _seats) {
             Stop(session, seat, L"service stopping");
         }
+        _seats.clear();
+        WriteState(); // no seats while the service is stopped
         CloseHandle(_job);
     }
 
@@ -149,9 +153,43 @@ public:
             }
             Ensure(session, it->second);
         }
+
+        WriteState();
     }
 
 private:
+    // Rewritten only when it changes. Same folder as the seat keys: Administrators/SYSTEM only.
+    void WriteState()
+    {
+        std::wstring text;
+        for (const auto& [session, seat] : _seats) {
+            const std::wstring file = seat.settings.substr(seat.settings.find_last_of(L'\\') + 1);
+            const DWORD pid = seat.process && WaitForSingleObject(seat.process, 0) == WAIT_TIMEOUT ? GetProcessId(seat.process) : 0;
+            text += file + L" " + std::to_wstring(session) + L" " + std::to_wstring(pid) + L"\r\n";
+        }
+        if (text == _state && _stateWritten) {
+            return;
+        }
+
+        const std::wstring path = _settingsDir + L"\\state.txt";
+        const std::wstring temp = path + L".new";
+        HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) {
+            return;
+        }
+        std::string ascii;  // file names and numbers only
+        for (wchar_t c : text) {
+            ascii += c < 128 ? static_cast<char>(c) : '?';
+        }
+        DWORD written = 0;
+        BOOL ok = WriteFile(file, ascii.data(), static_cast<DWORD>(ascii.size()), &written, nullptr);
+        CloseHandle(file);
+        if (ok && MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            _state = text;
+            _stateWritten = true;
+        }
+    }
+
     static std::vector<DWORD> SeatSessions()
     {
         std::vector<DWORD> result;
@@ -280,6 +318,8 @@ private:
     HANDLE _job = nullptr;
     std::map<DWORD, Seat> _seats;
     std::map<DWORD, bool> _warned;
+    std::wstring _state;
+    bool _stateWritten = false;
 };
 
 static void Run()

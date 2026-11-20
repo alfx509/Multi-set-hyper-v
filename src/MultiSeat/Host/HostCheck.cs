@@ -53,9 +53,22 @@ internal static class HostCheck
                 "will normally sign out the main desktop. Windows Server supports several players."));
         }
 
+        var local = config.SessionMode == SessionMode.Local;
+        if (local && sessionSeats > 0)
+        {
+            results.Add(Sessions.LocalSeatLauncher.Unavailable() is string missing
+                ? new(CheckLevel.Error, $"MultiSeat Local (experimental): {missing}. Choose \"Remote Desktop\" in Settings.")
+                : new(CheckLevel.Ok, "MultiSeat Local (experimental): provider, listener and seat service ready. " +
+                                     "Seat screens are not shown on monitors yet."));
+        }
+
         var monitors = Screen.AllScreens.Length;
         var wanted = config.Seats.Count(s => !string.IsNullOrEmpty(s.Monitor));
-        if (config.Seats.Count > monitors)
+        if (local)
+        {
+            results.Add(new(CheckLevel.Ok, $"{monitors} monitor(s) connected."));
+        }
+        else if (config.Seats.Count > monitors)
         {
             results.Add(new(CheckLevel.Warning,
                 $"{config.Seats.Count} players but only {monitors} monitor(s) connected. Every player needs a monitor."));
@@ -87,6 +100,11 @@ internal static class HostCheck
         else if (!File.Exists(Path.Combine(drivers, "keyboard.sys")))
         {
             results.Add(new(CheckLevel.Error, "Interception input driver not installed. Run MultiSeat-Setup.exe again and restart."));
+        }
+
+        if (local)
+        {
+            return results; // the seat service starts its own agent; players sign in themselves (no saved passwords)
         }
 
         if (!File.Exists(AppPaths.AgentExe))

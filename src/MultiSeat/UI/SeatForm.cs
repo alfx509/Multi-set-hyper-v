@@ -20,10 +20,13 @@ internal sealed class SeatForm : Form
     private readonly TextBox _usb = new() { Width = 300, Height = 60, Multiline = true, ScrollBars = ScrollBars.Vertical };
     private InputDevice? _keyboardDevice;
     private InputDevice? _mouseDevice;
+    private readonly bool _userOptional;
 
-    public SeatForm(Seat seat, InputRouter? router)
+    /// <param name="userOptional">MultiSeat Local: players sign in on their seat's own sign-in screen.</param>
+    public SeatForm(Seat seat, InputRouter? router, bool userOptional = false)
     {
         _seat = seat;
+        _userOptional = userOptional;
         _router = router;
         _keyboardDevice = seat.Keyboard;
         _mouseDevice = seat.Mouse;
@@ -224,14 +227,15 @@ internal sealed class SeatForm : Form
             return;
         }
 
-        if (!_seat.IsConsole && !System.Text.RegularExpressions.Regex.IsMatch(_user.Text.Trim(), @"^[A-Za-z0-9._-]{1,20}$"))
+        var noUser = _userOptional && _user.Text.Trim().Length == 0;
+        if (!_seat.IsConsole && !noUser && !System.Text.RegularExpressions.Regex.IsMatch(_user.Text.Trim(), @"^[A-Za-z0-9._-]{1,20}$"))
         {
             MessageBox.Show(this, "Type the seat's local Windows user name (letters, digits, . _ -).", Text);
             return;
         }
 
         // New player account: offer to create it right here.
-        if (!_seat.IsConsole && !Host.SecureFile.UserExists(_user.Text.Trim()))
+        if (!_seat.IsConsole && !noUser && !Host.SecureFile.UserExists(_user.Text.Trim()))
         {
             if (_password.Text.Length == 0)
             {
@@ -262,7 +266,7 @@ internal sealed class SeatForm : Form
         _seat.Monitor = (_monitor.SelectedItem as Choice)?.Id;
         if (!_seat.IsConsole)
         {
-            _seat.UserName = _user.Text.Trim();
+            _seat.UserName = noUser ? null : _user.Text.Trim();
             _seat.Keyboard = _keyboardDevice;
             _seat.Mouse = _mouseDevice;
             var output = _output.SelectedItem as Choice;

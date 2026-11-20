@@ -17,6 +17,7 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox _reconnect = Check("Reopen a player's screen if it closes");
     private readonly CheckBox _confine = Check("Keep my mouse on my own monitor while playing");
     private readonly ComboBox _fps = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+    private readonly ComboBox _mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330 };
 
     public SettingsForm(MultiSeatConfig config)
     {
@@ -32,11 +33,21 @@ internal sealed class SettingsForm : Form
         Font = new Font("Segoe UI", 9.5f);
 
         _fps.Items.AddRange(new object[] { "60 fps (smooth, more GPU)", "30 fps (lighter)" });
+        _mode.Items.AddRange(new object[] { "Remote Desktop (works today)", "MultiSeat Local (experimental, developer preview)" });
+        var modeNote = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(500, 0),
+            ForeColor = SystemColors.GrayText,
+            Text = "MultiSeat Local: each player gets their own sign-in screen, no Remote Desktop window. Needs the " +
+                   "MultiSeat Local driver and seat service; seat screens are not shown on monitors yet.",
+        };
 
         var root = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
         root.Controls.Add(Group("Windows startup", _startWithWindows, _startMinimized));
         root.Controls.Add(Group("Window", _minimizeToTray, _closeToTray));
-        root.Controls.Add(Group("Players", _autoStartSeats, _reconnect, _confine, Row("Players' screens:", _fps)));
+        root.Controls.Add(Group("Players", _autoStartSeats, _reconnect, _confine, Row("Players' screens:", _fps),
+            Row("Player sessions:", _mode), modeNote));
 
         var help = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(520, 0) };
         help.Controls.Add(LinkButton("Open settings folder", () => Open(AppPaths.Data)));
@@ -126,6 +137,7 @@ internal sealed class SettingsForm : Form
         _reconnect.Checked = _config.AutoReconnect;
         _confine.Checked = _config.ConfineConsoleCursor;
         _fps.SelectedIndex = FrameRate.Get() >= 60 ? 0 : 1;
+        _mode.SelectedIndex = _config.SessionMode == SessionMode.Local ? 1 : 0;
     }
 
     private void Save()
@@ -136,6 +148,14 @@ internal sealed class SettingsForm : Form
         _config.AutoStartSeats = _autoStartSeats.Checked;
         _config.AutoReconnect = _reconnect.Checked;
         _config.ConfineConsoleCursor = _confine.Checked;
+        var mode = _mode.SelectedIndex == 1 ? SessionMode.Local : SessionMode.RemoteDesktop;
+        if (mode != _config.SessionMode)
+        {
+            _config.SessionMode = mode;
+            Messages.Add(mode == SessionMode.Local
+                ? "Player sessions: MultiSeat Local (experimental). Applies at the next Start."
+                : "Player sessions: Remote Desktop. Applies at the next Start.");
+        }
 
         if (_startWithWindows.Checked != StartupTask.Exists())
         {

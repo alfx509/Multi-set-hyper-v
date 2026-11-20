@@ -25,6 +25,10 @@ public sealed class MultiSeatConfig
 
     public List<Seat> Seats { get; set; } = new();
 
+    /// <summary>How player seats get their own Windows session (see <see cref="SessionMode"/>).</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public SessionMode SessionMode { get; set; } = SessionMode.RemoteDesktop;
+
     /// <summary>Keep the console seat's mouse on the console seat's monitor while seats run.</summary>
     public bool ConfineConsoleCursor { get; set; } = true;
 
@@ -137,16 +141,22 @@ public sealed class MultiSeatConfig
 
             if (!seat.IsConsole)
             {
+                // MultiSeat Local: players sign in on their own seat's sign-in screen, so a user is optional,
+                // and seat screens are not placed on monitors yet (presenter: needs the test PC).
+                var local = SessionMode == SessionMode.Local;
                 if (string.IsNullOrWhiteSpace(seat.UserName))
                 {
-                    yield return $"{seat.Name}: choose a Windows user.";
+                    if (!local)
+                    {
+                        yield return $"{seat.Name}: choose a Windows user.";
+                    }
                 }
                 else if (!users.Add(seat.UserName))
                 {
                     yield return $"{seat.Name}: user '{seat.UserName}' is already used by another seat.";
                 }
 
-                if (string.IsNullOrWhiteSpace(seat.Monitor))
+                if (string.IsNullOrWhiteSpace(seat.Monitor) && !local)
                 {
                     yield return $"{seat.Name}: choose a monitor.";
                 }
@@ -226,6 +236,51 @@ public sealed record InputDevice(int Slot, string HardwareId, bool? Keyboard = n
     public string Description => Slot >= DriverSlotBase
         ? $"{(IsKeyboard ? "Keyboard" : "Mouse")} {Slot - DriverSlotBase}"
         : IsKeyboard ? $"Keyboard {Slot}" : $"Mouse {Slot - 10}";
+}
+
+public enum SessionMode
+{
+    /// <summary>v0.3: each seat signs in over loopback Remote Desktop; its window is shown on the seat's monitor (60 fps cap).</summary>
+    RemoteDesktop,
+
+    /// <summary>
+    /// Experimental (Phase 2): MultiSeat Local protocol provider + remote display driver + MultiSeatSeats service.
+    /// Each seat is its own session with its own sign-in screen; no Remote Desktop client window.
+    /// </summary>
+    Local,
+}
+
+/// <summary>
+/// MultiSeat Local seats. The manager writes one settings file per seat (agents\local-NN.json, NN = seat number) and
+/// connects seats one at a time; the MultiSeatSeats service gives each new seat session the first free file and starts
+/// its agent there, and writes agents\state.txt: one line per seat session, "local-NN.json session agent-pid".
+/// </summary>
+public static class LocalSeats
+{
+    public const string StateFileName = "state.txt";
+
+    public static string FileName(Seat seat) => $"local-{seat.AgentPort - MultiSeatConfig.FirstAgentPort:D2}.json";
+
+    public static bool IsSeatFile(string fileName) =>
+        fileName.StartsWith("local-", StringComparison.OrdinalIgnoreCase) && fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>settings file name → (session id, agent pid; 0 = agent not running).</summary>
+    public static Dictionary<string, (int Session, int AgentPid)> ParseState(string text)
+    {
+        var result = new Dictionary<string, (int, int)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in text.Split('\n'))
+        {
+            var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 3 && IsSeatFile(parts[0])
+                && int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var session)
+                && int.TryParse(parts[2], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var pid))
+            {
+                result[parts[0]] = (session, pid);
+            }
+        }
+
+        return result;
+    }
 }
 
 /// <summary>What the agent inside a seat's session needs. One file per Windows user, readable only by that user.</summary>

@@ -131,6 +131,68 @@ public class ConfigTests
     }
 }
 
+public class LocalSeatTests
+{
+    private static MultiSeatConfig TwoSeats(SessionMode mode)
+    {
+        var config = new MultiSeatConfig
+        {
+            SessionMode = mode,
+            Seats =
+            {
+                new Seat { Name = "Main", IsConsole = true },
+                new Seat { Name = "P2", Keyboard = new InputDevice(101, "kb", true), Mouse = new InputDevice(102, "m", false) },
+            },
+        };
+        config.Normalize();
+        return config;
+    }
+
+    [Fact]
+    public void LocalSeatsNeedNoUserOrMonitor()
+    {
+        Assert.Empty(TwoSeats(SessionMode.Local).Validate());
+        var rdp = TwoSeats(SessionMode.RemoteDesktop).Validate().ToList();
+        Assert.Contains(rdp, p => p.Contains("Windows user"));
+        Assert.Contains(rdp, p => p.Contains("monitor"));
+    }
+
+    [Fact]
+    public void ModeIsSavedAsTextAndOldConfigsStayRemoteDesktop()
+    {
+        var json = TwoSeats(SessionMode.Local).ToJson();
+        Assert.Contains("\"sessionMode\": \"Local\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(SessionMode.Local, MultiSeatConfig.Load(WriteTemp(json)).SessionMode);
+        Assert.Equal(SessionMode.RemoteDesktop, MultiSeatConfig.Load(WriteTemp("""{ "seats": [] }""")).SessionMode);
+    }
+
+    [Fact]
+    public void SettingsFilesSortInSeatOrder()
+    {
+        var seat2 = new Seat { AgentPort = MultiSeatConfig.FirstAgentPort + 2 };
+        var seat10 = new Seat { AgentPort = MultiSeatConfig.FirstAgentPort + 10 };
+        Assert.Equal("local-02.json", LocalSeats.FileName(seat2));
+        Assert.True(string.CompareOrdinal(LocalSeats.FileName(seat2), LocalSeats.FileName(seat10)) < 0);
+        Assert.False(LocalSeats.IsSeatFile("state.txt"));
+    }
+
+    [Fact]
+    public void StateFileIsParsedStrictly()
+    {
+        var state = LocalSeats.ParseState("local-01.json 4 3784\r\nlocal-02.json 5 0\nbad line\nlocal-03.json -1 2\nother.json 6 7\n");
+        Assert.Equal(2, state.Count);
+        Assert.Equal((4, 3784), state["local-01.json"]);
+        Assert.Equal((5, 0), state["LOCAL-02.json"]);
+    }
+
+    private static string WriteTemp(string text)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ms-test-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, text);
+        return path;
+    }
+}
+
 public class InputDeviceTests
 {
     [Fact]

@@ -285,7 +285,28 @@ Fail-safe: agents are in a kill-on-close job when Windows allows it (it sometime
 session: error 5), and each agent also exits by itself when its `--parent` service is gone, releasing held keys.
 Seat ↔ settings is "first free file" for now; the manager will choose the seat when it connects seats.
 
-Open: the manager connects/disconnects seats and writes `local-*.json`; later, more native: feed the
+**B4 manager result (2026-11-20): the MultiSeat manager runs MultiSeat Local seats.**
+Settings → *Player sessions* → **MultiSeat Local (experimental)** (`"SessionMode": "Local"` in config.json; default
+stays Remote Desktop). On Start the manager writes `agents\local-NN.json` per seat (NN = seat number, Administrators/
+SYSTEM only), connects the seats **one at a time in seat order** (the service gives a new seat session the first free
+file, so seat ↔ settings stays fixed) and waits for the service's `agents\state.txt`
+(`local-NN.json <session> <agent pid>`). Players sign in on their own seat's sign-in screen, so a seat needs no Windows
+user or saved password in this mode, and no monitor yet. Stop disconnects the seats (players stay signed in);
+Sign out uses the seat's session. An idle sign-in screen closed by Windows (~30 s) is connected again quietly.
+Also: the manager log is now written to `C:\ProgramData\MultiSeat\manager.log` too.
+
+Measured in the VM (manager started as SYSTEM with *Start the players automatically*, seat "Player 2" = the VM's
+keyboard + mouse through MultiSeatInput):
+
+| Check | Result |
+|---|---|
+| Start | `local-01.json` written, seat connected (session 2), agent running, host checks show "MultiSeat Local … ready" |
+| Sign-in screen closed after 30 s idle | manager reconnected it (session 4, same `local-01.json`) |
+| Keys on Player 2's keyboard | "seat" in Player 2's user name box, nothing on the console |
+| Manager killed (crash) | keyboard and mouse back to `pass` (main desktop) |
+
+Open: show each seat on its own monitor (presenter – test PC); fix the 30 s sign-in timeout at the root; later,
+more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 
 Questions to answer with measurements before writing the display driver:
