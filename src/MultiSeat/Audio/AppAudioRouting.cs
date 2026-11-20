@@ -52,7 +52,8 @@ internal static class AppAudioRouting
 
             return null;
         }
-        catch (Exception ex) when (ex is COMException or EntryPointNotFoundException or DllNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is COMException or ArgumentException or EntryPointNotFoundException or DllNotFoundException
+                                       or InvalidOperationException)
         {
             return ex.Message;
         }
@@ -94,11 +95,13 @@ internal static class AppAudioRouting
         }
     }
 
+    // Always a COMException (Marshal.ThrowExceptionForHR maps e.g. E_INVALIDARG to ArgumentException), so Route
+    // turns every failure into a message instead of crashing Start.
     private static void Check(int hr)
     {
         if (hr < 0)
         {
-            Marshal.ThrowExceptionForHR(hr);
+            throw new COMException($"Windows refused the sound device (0x{hr:X8}).", hr);
         }
     }
 

@@ -851,8 +851,10 @@ internal sealed class MainForm : Form
             var session = await SessionLauncher.LaunchAsync(seat, screen, m => BeginInvoke(() => Log(m)));
             _sessions[seat] = session;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            // One player's problem must never stop Start halfway (then the other players and the mouse fence
+            // would not be set up).
             Log($"✖ {seat.Name}: could not start: {ex.Message}");
         }
     }
