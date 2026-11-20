@@ -35,8 +35,8 @@ Start-Sleep -Seconds 3
 # 1. agent settings
 $agents = "$data\agents"; New-Item -ItemType Directory -Force $agents | Out-Null
 if ($ServiceAgent) {
-    $settings = "$agents\local-1.json"
-    if (-not (Test-Path $settings)) { throw "$settings is missing (Install-SeatService.ps1 -TestSeat)." }
+    if (-not (Get-ChildItem "$agents\local-*.json" -ErrorAction SilentlyContinue)) { throw "No $agents\local-*.json (Install-SeatService.ps1 -TestSeat)." }
+    $settings = $null # the file the service gives the new seat session (agents\state.txt), below
 }
 else {
     $settings = "$agents\seat-test.json"
@@ -60,6 +60,8 @@ $task = "MultiSeatAgent-$session"
 if ($ServiceAgent) {
     for ($i = 0; $i -lt 40 -and -not (Get-Process SeatAgent -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session); $i++) { Start-Sleep -Milliseconds 250 }
     Start-Sleep -Seconds 1
+    $line = Get-Content "$agents\state.txt" -ErrorAction SilentlyContinue | Where-Object { ($_ -split ' ')[1] -eq "$session" } | Select-Object -First 1
+    if ($line) { $settings = "$agents\$(($line -split ' ')[0])"; "Seat settings (from the service): $settings" }
 }
 else {
     Start-Sleep -Seconds 3

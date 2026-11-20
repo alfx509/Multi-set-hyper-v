@@ -87,6 +87,27 @@ internal sealed class Injector
         Send();
     }
 
+    /// <summary>
+    /// Counts as input for Windows (1 pixel right and back), but changes nothing for the player. Windows closes a
+    /// remote session's sign-in screen after about 30 s without input; a seat must keep showing it.
+    /// Not included in the injected counts.
+    /// </summary>
+    public bool KeepAlive()
+    {
+        var ok = true;
+        foreach (var dx in new[] { 1, -1 })
+        {
+            _one[0] = new Input
+            {
+                Type = InputMouse,
+                Data = new InputUnion { Mouse = new MouseInput { Dx = dx, Dy = 0, Flags = MouseMove } },
+            };
+            ok &= SendInput(1, _one, InputSize) == 1;
+        }
+
+        return ok;
+    }
+
     private void Send()
     {
         if (SendInput(1, _one, InputSize) == 1)

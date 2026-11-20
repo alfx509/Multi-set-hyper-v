@@ -78,6 +78,8 @@ Log($"{settings.Seat}: listening on 127.0.0.1:{settings.Port}");
 var buffer = new byte[256];
 var lastPacket = Environment.TickCount64;
 var lastCount = lastPacket;
+var lastInput = lastPacket; // real input or keep-alive (not heartbeats)
+var keepingAlive = false;
 long rejected = 0;
 
 while (true)
@@ -103,6 +105,21 @@ while (true)
             Log(failed == 0 ? $"Injected {sent} event(s) on {desktop.Name}."
                             : $"Injected {sent} event(s) on {desktop.Name}; {failed} refused (error {error}).");
         }
+    }
+
+    // Seat mode: Windows closes a remote session's sign-in screen after ~30 s without input (disconnect reason 12),
+    // so an empty seat would blink off. On the sign-in screen only (Winlogon desktop), after 15 s without input,
+    // a 1-pixel mouse nudge counts as input. After sign-in the user's desktop follows normal Windows idle rules.
+    if (seatMode && now - lastInput >= 15000)
+    {
+        lastInput = now;
+        var signIn = string.Equals(desktop.Name, "Winlogon", StringComparison.OrdinalIgnoreCase);
+        if (signIn && injector.KeepAlive() && !keepingAlive)
+        {
+            Log("Keeping the seat's sign-in screen open (no input yet).");
+        }
+
+        keepingAlive = signIn;
     }
 
     if (length == 0)
@@ -139,6 +156,11 @@ while (true)
     }
 
     lastPacket = now;
+    if (e.Type != PacketType.Heartbeat)
+    {
+        lastInput = now;
+    }
+
     if (guard.SessionChanged)
     {
         injector.ReleaseAll();

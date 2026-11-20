@@ -305,8 +305,16 @@ keyboard + mouse through MultiSeatInput):
 | Keys on Player 2's keyboard | "seat" in Player 2's user name box, nothing on the console |
 | Manager killed (crash) | keyboard and mouse back to `pass` (main desktop) |
 
-Open: show each seat on its own monitor (presenter – test PC); fix the 30 s sign-in timeout at the root; later,
-more native: feed the
+**B4 sign-in timeout result (2026-11-20): an empty seat keeps its sign-in screen.**
+Cause: Windows disconnects a remote session that sits on its sign-in screen for ~30 s **without input**
+(LocalSessionManager event 40, "disconnected, reason code 12"; provider `PreDisconnect(12)`). It is an idle timer:
+with a key every 8 s the seat stayed for 80 s. No documented setting changes it (the RDS session time limits are in
+minutes and default to never). Fix in SeatAgent (seat mode): on the Winlogon desktop only, after 15 s without input,
+a 1-pixel mouse move right and back counts as input. After sign-in, the user's desktop follows normal Windows idle
+rules. VM: seat connected, nothing touched for 120 s → same session, no disconnect
+(`Keeping the seat's sign-in screen open`). The manager's quiet reconnect stays as a safety net.
+
+Open: show each seat on its own monitor (presenter – test PC); later, more native: feed the
 seat's own `terminpt` devices directly (undocumented – research).
 
 Questions to answer with measurements before writing the display driver:
