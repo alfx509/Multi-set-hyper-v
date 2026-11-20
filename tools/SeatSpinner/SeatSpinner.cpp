@@ -297,7 +297,7 @@ static int Nudge()
 
 // ------------------------------------------------------------------ launch into another session (needs SYSTEM)
 
-static int Launch(DWORD session, const wchar_t* childArgs)
+static int Launch(DWORD session, const wchar_t* childArgs, const wchar_t* otherExe = nullptr)
 {
     HANDLE self = nullptr, primary = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, &self) ||
@@ -316,7 +316,11 @@ static int Launch(DWORD session, const wchar_t* childArgs)
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     wchar_t commandLine[MAX_PATH + 256];
-    swprintf_s(commandLine, L"\"%s\" %s", exe, childArgs);
+    if (otherExe) {
+        swprintf_s(commandLine, L"\"%s\" %s", otherExe, childArgs);   // run: any program in the session
+    } else {
+        swprintf_s(commandLine, L"\"%s\" %s", exe, childArgs);
+    }
 
     // Before sign-in the session shows the Winlogon desktop; after sign-in the user's Default desktop.
     const wchar_t* desktops[] = { L"winsta0\\winlogon", L"winsta0\\default" };
@@ -353,6 +357,15 @@ int wmain(int argc, wchar_t** argv)
     }
     if (argc >= 2 && _wcsicmp(argv[1], L"nudge") == 0) {
         return Nudge();
+    }
+    if (argc >= 4 && _wcsicmp(argv[1], L"run") == 0) {
+        // run <session> <exe> [one argument string]  -> start any program inside the session as SYSTEM
+        wchar_t rest[512] = {};
+        for (int i = 4; i < argc; i++) {
+            wcscat_s(rest, i > 4 ? L" " : L"");
+            wcscat_s(rest, argv[i]);
+        }
+        return Launch(static_cast<DWORD>(_wtoi(argv[2])), rest, argv[3]);
     }
     if (argc >= 3 && _wcsicmp(argv[1], L"launch") == 0) {
         // launch <session> [seconds]            -> spin

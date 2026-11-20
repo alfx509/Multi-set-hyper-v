@@ -6,8 +6,13 @@ using MultiSeat.Core;
 
 // Runs in every user session (HKLM Run key). If this user is a MultiSeat seat, receive that seat's
 // keyboard/mouse from the MultiSeat manager and type/click them into this session.
+//
+// Seat mode (MultiSeat Local sessions): SeatAgent.exe --seat <settings.json>
+// started as SYSTEM inside the seat's session before anyone signs in; follows the input desktop
+// (sign-in screen -> user desktop) so the seat's keyboard/mouse work everywhere.
 
-var settingsPath = AgentSettings.PathFor(Environment.UserName);
+var seatMode = args.Length >= 2 && args[0] == "--seat";
+var settingsPath = seatMode ? args[1] : AgentSettings.PathFor(Environment.UserName);
 if (!File.Exists(settingsPath))
 {
     return 0; // not a seat user (for example the main desktop user)
@@ -19,7 +24,9 @@ if (!first)
     return 0;
 }
 
-var logPath = Path.Combine(Path.GetTempPath(), "MultiSeatAgent.log");
+var logPath = seatMode
+    ? Path.Combine(@"C:\ProgramData\MultiSeat", $"agent-s{System.Diagnostics.Process.GetCurrentProcess().SessionId}.log")
+    : Path.Combine(Path.GetTempPath(), "MultiSeatAgent.log");
 using var log = new StreamWriter(logPath, append: true) { AutoFlush = true };
 void Log(string m) => log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {m}");
 
@@ -35,9 +42,15 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or J
     return 1;
 }
 
-if (!Pointer.UseSoftwarePointer())
+if (!seatMode && !Pointer.UseSoftwarePointer())
 {
     Log("Could not switch on the software mouse pointer; it applies after the next sign-in.");
+}
+
+var desktop = new DesktopFollower();
+if (seatMode)
+{
+    desktop.Follow(Log);
 }
 
 var codec = PacketCodec.FromBase64(settings.Key);
@@ -68,6 +81,11 @@ while (true)
     var now = Environment.TickCount64;
     if (length == 0)
     {
+        if (seatMode)
+        {
+            desktop.Follow(Log);
+        }
+
         if (injector.HasPressed && now - lastPacket > settings.WatchdogMs)
         {
             injector.ReleaseAll(); // manager stopped or crashed: never leave keys held down
@@ -91,6 +109,11 @@ while (true)
     if (guard.SessionChanged)
     {
         injector.ReleaseAll();
+    }
+
+    if (seatMode)
+    {
+        desktop.Follow(Log);
     }
 
     injector.Apply(e);

@@ -9,4 +9,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MultiSeat.Core\MultiSeat.Core.csproj" />
+  </ItemGroup>
 </Project>
