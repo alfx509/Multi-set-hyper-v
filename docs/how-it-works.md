@@ -44,8 +44,9 @@ one player's hardware.
   GPU policy set, games in the session render on the real graphics card.
 - **One client copy per seat**: Windows remembers the sound device per program path, so seat 2's
   copy can play on headset 2 and seat 3's copy on headset 3.
-- **Software pointer in seats**: the agent asks Windows to draw the mouse pointer into the picture,
-  because the seat's pointer is moved from inside the session.
+- **Pointer drawn by the agent**: the Remote Desktop window draws a pointer only where the *main* mouse is,
+  and the main mouse is kept off players' monitors. So the agent shows the seat's pointer itself: a small
+  see-through, click-through, always-on-top window with the current pointer shape, hidden when a game hides it.
 
 ## Security
 

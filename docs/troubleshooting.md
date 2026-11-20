@@ -37,8 +37,9 @@ Make sure Windows display scaling is set per monitor and all monitors are on the
 - The device moved after re-plugging: MultiSeat says "has changed" → edit the seat, Assign again.
 
 **No mouse pointer visible in a seat**
-Inside the seat: *Settings → Bluetooth & devices → Mouse → Additional mouse settings → Pointer
-Options → Display pointer trails* (shortest). Then tell us your Windows version in an issue.
+Since v0.4.0-test.3 the seat agent draws the player's pointer itself. If it is still missing: sign the player
+out (right-click the player → Sign out this player) and press Start again, so the new agent runs. Then tell us
+your Windows version in an issue.
 
 **Mouse feels too fast/slow in a seat**
 Set the sensitivity inside the seat (Mouse settings) or in the game. Turn off *Enhance pointer precision* for 1:1 movement.

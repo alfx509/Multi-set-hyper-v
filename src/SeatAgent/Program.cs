@@ -11,6 +11,21 @@ using MultiSeat.Core;
 // started as SYSTEM inside the seat's session before anyone signs in; follows the input desktop
 // (sign-in screen -> user desktop) so the seat's keyboard/mouse work everywhere.
 // SeatService adds "--parent <its pid>": the agent exits (releasing held keys) when the service is gone.
+//
+// Test: SeatAgent.exe --pointer-test [seconds]   draws the pointer and moves it in a circle (test VM snapshots).
+
+if (args.Length >= 1 && args[0] == "--pointer-test")
+{
+    var seconds = args.Length >= 2 && int.TryParse(args[1], out var s) ? s : 20;
+    using var testLog = new StreamWriter(Path.Combine(@"C:\ProgramData\MultiSeat", "pointer-test.log"), append: true) { AutoFlush = true };
+    using (PointerOverlay.Start(m => testLog.WriteLine(m)))
+    {
+        PointerTest.Circle(seconds);
+    }
+
+    testLog.WriteLine($"{DateTime.Now:HH:mm:ss} pointer test done");
+    return 0;
+}
 
 var seatMode = args.Length >= 2 && args[0] == "--seat";
 var settingsPath = seatMode ? args[1] : AgentSettings.PathFor(Environment.UserName);
@@ -55,9 +70,12 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or J
     return 1;
 }
 
-if (!seatMode && !Pointer.UseSoftwarePointer())
+// Remote Desktop seats: the viewer window would draw the pointer only at the main desktop's mouse, which is kept
+// away from players' monitors, so the agent draws the seat's pointer itself.
+using var pointer = seatMode ? null : PointerOverlay.Start(Log);
+if (!seatMode)
 {
-    Log("Could not switch on the software mouse pointer; it applies after the next sign-in.");
+    Pointer.UndoSoftwarePointerSetting();
 }
 
 var desktop = new DesktopFollower();
